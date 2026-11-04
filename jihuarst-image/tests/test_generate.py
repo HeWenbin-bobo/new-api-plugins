@@ -813,6 +813,33 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual([], list(Path(self.tempdir.name).glob("*.tmp")))
         self.assertEqual([], list(Path(self.tempdir.name).glob("*.backup-*")))
 
+    def test_successful_replacement_removes_backup(self) -> None:
+        self.output.write_bytes(b"original")
+        self.module._write_images_atomically([self.output], [IMAGE_BYTES])
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual([], list(Path(self.tempdir.name).glob("*.tmp")))
+
+    def test_failed_rollback_preserves_original_backup(self) -> None:
+        self.output.write_bytes(b"original")
+        real_replace = self.module.os.replace
+
+        def fail_target_replace(source, target):
+            if Path(target) == self.output:
+                raise PermissionError("target locked")
+            return real_replace(source, target)
+
+        with fake_api([200]) as (server, url):
+            with mock.patch.object(self.module.os, "replace", side_effect=fail_target_replace):
+                with self.assertRaises(self.module._PaidDeliveryError) as raised:
+                    self.module.generate_image(
+                        "cat", self.output, "test-key", [url], ["gpt-image-2.5"], 2,
+                    )
+        backups = list(Path(self.tempdir.name).glob("*.backup-*"))
+        self.assertEqual(1, len(backups))
+        self.assertEqual(b"original", backups[0].read_bytes())
+        self.assertIn(str(backups[0]), str(raised.exception))
+        self.assertEqual(1, len(server.requests))
+
     def test_revised_prompt_is_surfaced(self) -> None:
         with fake_api([200]) as (server, url):
             result = self.module.generate_image("cat", self.output, "test-key",

@@ -455,12 +455,13 @@ def _write_images_atomically(targets: Sequence[Path], images: Sequence[bytes]) -
     """Stage all images and preserve old targets until every replacement succeeds.
 
     If a later replacement fails, earlier existing targets are restored from
-    their backups.  Restoration itself is best-effort: a filesystem that also
-    refuses rollback is reported rather than hidden.
+    their backups.  A failed restoration preserves its backup and reports its
+    path for manual recovery.
     """
     backups: dict[Path, Path | None] = {}
     replaced: list[Path] = []
     temporary_paths: list[Path] = []
+    preserved_backups: set[Path] = set()
     try:
         for image_bytes, target in zip(images, targets):
             target.parent.mkdir(parents=True, exist_ok=True)
@@ -492,7 +493,12 @@ def _write_images_atomically(targets: Sequence[Path], images: Sequence[bytes]) -
                     os.replace(backup, target)
                     temporary_paths.remove(backup)
             except OSError as exc:
-                rollback_errors.append(f"{target}: {type(exc).__name__}")
+                if backup is not None:
+                    preserved_backups.add(backup)
+                preserved = f"；原文件备份保留在 {backup}" if backup is not None else ""
+                rollback_errors.append(
+                    f"{target}: {type(exc).__name__}{preserved}"
+                )
         if rollback_errors:
             raise OSError(
                 "图片替换失败，且部分旧输出无法自动恢复: " + "; ".join(rollback_errors)
@@ -500,6 +506,8 @@ def _write_images_atomically(targets: Sequence[Path], images: Sequence[bytes]) -
         raise
     finally:
         for temporary_path in temporary_paths:
+            if temporary_path in preserved_backups:
+                continue
             try:
                 temporary_path.unlink()
             except FileNotFoundError:
@@ -610,7 +618,8 @@ def generate_image(
             except OSError as exc:
                 raise _PaidDeliveryError(
                     f"本次生图已计费，但写入输出文件失败；未提交新的生图请求。"
-                    f"输出路径: {output_path.parent}\n{type(exc).__name__}"
+                    f"输出路径: {output_path.parent}\n"
+                    f"{type(exc).__name__}: {redact_secrets(str(exc), api_key)}"
                 ) from exc
             return GenerationResult(
                 base_url=base_url,
