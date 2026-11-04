@@ -29,11 +29,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 BASE_URLS = [
+    "http://222.211.75.198:3000",
     "https://gz-api.jihuarst.top:8443",
     "https://api.jihuarst.top",
     "https://sg-api.jihuarst.top",
 ]
-MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2"]
+GPT_MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2"]
+MODELS = [*GPT_MODELS, "hunyuan-image-alpha"]
+EDIT_MODELS = [*GPT_MODELS, "hunyuan-image-alpha-edit"]
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 LOGGER = logging.getLogger("jihuarst-image")
 SECRET_PATTERN = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+\b")
@@ -219,7 +222,7 @@ def generate_image(
     output_path: Path,
     api_key: str,
     base_urls: Sequence[str] = BASE_URLS,
-    models: Sequence[str] = MODELS,
+    models: Sequence[str] | None = None,
     timeout: float = 180.0,
     count: int = 1,
     references: Sequence[Path] = (),
@@ -247,10 +250,11 @@ def generate_image(
             raise ValueError(f"遮罩图不存在: {mask}")
 
     errors: list[str] = []
-    total = len(base_urls) * len(models)
+    selected_models = models if models is not None else (EDIT_MODELS if references else MODELS)
+    total = len(base_urls) * len(selected_models)
     attempt = 0
     for base_url in base_urls:
-        for model in models:
+        for model in selected_models:
             attempt += 1
             LOGGER.info("尝试 %d/%d: %s | %s", attempt, total, base_url, model)
             try:
@@ -341,7 +345,7 @@ def main(argv: Iterable[str] | None = None) -> int:
                     "尺寸 %s 总像素低于阈值，上游可能抬升为 1254x1254", args.size
                 )
 
-    models = [args.model] if args.model else MODELS
+    models = [args.model] if args.model else None
     base_urls = [args.base_url] if args.base_url else BASE_URLS
 
     try:

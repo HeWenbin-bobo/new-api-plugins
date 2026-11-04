@@ -15,11 +15,17 @@ from pathlib import Path
 SKILL_DIR = Path(__file__).resolve().parents[1]
 SCRIPT = SKILL_DIR / "scripts" / "generate.py"
 EXPECTED_URLS = [
+    "http://222.211.75.198:3000",
     "https://gz-api.jihuarst.top:8443",
     "https://api.jihuarst.top",
     "https://sg-api.jihuarst.top",
 ]
-EXPECTED_MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2"]
+EXPECTED_MODELS = [
+    "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2", "hunyuan-image-alpha",
+]
+EXPECTED_EDIT_MODELS = [
+    "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2", "hunyuan-image-alpha-edit",
+]
 IMAGE_BYTES = b"\x89PNG\r\n\x1a\njihuarst-test"
 PNG_1PX = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8AAAwAB/AF+p0hRAAAAAElFTkSuQmCC"
@@ -128,6 +134,57 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(EXPECTED_URLS, self.module.BASE_URLS)
         self.assertEqual(EXPECTED_MODELS, self.module.MODELS)
 
+    def test_default_text_chain_excludes_edit_only_model(self) -> None:
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image("cat", self.output, "test-key", [url], timeout=2)
+        self.assertEqual(EXPECTED_MODELS,
+                         [r["payload"]["model"] for r in server.requests])
+        self.assertNotIn("hunyuan-image-alpha-edit",
+                         [r["payload"]["model"] for r in server.requests])
+
+    def test_default_reference_chain_uses_edit_model_last(self) -> None:
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image("paint it blue", self.output, "test-key",
+                                           [url], timeout=2, references=[self.ref])
+        self.assertEqual(EXPECTED_EDIT_MODELS,
+                         [r["payload"]["model"] for r in server.requests])
+        self.assertNotIn("hunyuan-image-alpha",
+                         [r["payload"]["model"] for r in server.requests])
+
+    def test_cli_reference_mode_uses_edit_chain(self) -> None:
+        original_loader = self.module.load_api_key
+        self.module.load_api_key = lambda: "test-key"
+        self.addCleanup(setattr, self.module, "load_api_key", original_loader)
+        with fake_api([500]) as (server, url):
+            with self.assertLogs("jihuarst-image", level="ERROR"):
+                status = self.module.main([
+                    "paint it blue", "-r", str(self.ref), "--base-url", url, "--timeout", "2",
+                ])
+        self.assertEqual(1, status)
+        self.assertEqual(EXPECTED_EDIT_MODELS,
+                         [r["payload"]["model"] for r in server.requests])
+
+    def test_cli_explicit_model_overrides_mode_chain(self) -> None:
+        original_loader = self.module.load_api_key
+        self.module.load_api_key = lambda: "test-key"
+        self.addCleanup(setattr, self.module, "load_api_key", original_loader)
+        cases = [
+            ("generations", [], "hunyuan-image-alpha-edit"),
+            ("edits", ["-r", str(self.ref)], "hunyuan-image-alpha"),
+        ]
+        for endpoint, mode_args, model in cases:
+            with self.subTest(endpoint=endpoint), fake_api([200]) as (server, url):
+                status = self.module.main([
+                    "cat", *mode_args, "--model", model, "--base-url", url,
+                    "--timeout", "2", "-o", str(self.output),
+                ])
+                self.assertEqual(0, status)
+                self.assertEqual(1, len(server.requests))
+                self.assertEqual(f"/v1/images/{endpoint}", server.requests[0]["path"])
+                self.assertEqual(model, server.requests[0]["payload"]["model"])
+
     def test_text_mode_uses_generations_json(self) -> None:
         with fake_api([200]) as (server, url):
             result = self.module.generate_image("cat", self.output, "test-key",
@@ -202,12 +259,12 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual("high", payload["input_fidelity"])
 
     def test_tries_every_model_on_preferred_url_before_succeeding(self) -> None:
-        with fake_api([500, 500, 200]) as (server, url):
+        with fake_api([500, 500, 500, 200]) as (server, url):
             result = self.module.generate_image("cat", self.output, "test-key",
                                                [url], EXPECTED_MODELS, 2)
         self.assertEqual(EXPECTED_MODELS, [r["payload"]["model"] for r in server.requests])
         self.assertTrue(all(r["path"] == "/v1/images/generations" for r in server.requests))
-        self.assertEqual((url, "gpt-image-2"), (result.base_url, result.model))
+        self.assertEqual((url, "hunyuan-image-alpha"), (result.base_url, result.model))
 
     def test_exhausts_models_before_switching_url(self) -> None:
         with fake_api([500]) as (first, first_url), fake_api([200]) as (second, second_url):
