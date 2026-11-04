@@ -5,11 +5,11 @@
   <p><strong>让模型能力，连接真实世界。</strong></p>
   <p>
     <img src="https://img.shields.io/badge/New_API-Task_Plugin-7C3AED?style=flat-square&labelColor=111827" alt="New API Task Plugin" />
-    <img src="https://img.shields.io/badge/Agent_Skills-02-0891B2?style=flat-square&labelColor=111827" alt="Two Agent Skills" />
+    <img src="https://img.shields.io/badge/Agent_Skills-03-0891B2?style=flat-square&labelColor=111827" alt="Three Agent Skills" />
     <img src="https://img.shields.io/badge/MCP-Universal_Gateway-2563EB?style=flat-square&labelColor=111827" alt="MCP Universal Gateway" />
     <img src="https://img.shields.io/badge/Plugin_API-v1-10B981?style=flat-square&labelColor=111827" alt="Plugin API v1" />
   </p>
-  <p>视频生成 × 图像创作 × 统一检索。一个仓库，四种能力，面向下一代 AI 工作流。</p>
+  <p>视频生成 × 图像创作 × 统一检索。一个仓库，五个独立工具，面向下一代 AI 工作流。</p>
 </div>
 
 ---
@@ -20,8 +20,23 @@
 |:---|:---|:---|:---|
 | **WorkBuddy Kling** | New API Task Plugin | 将 OpenAI Video 请求转发至 WorkBuddy，支持文生视频、图生视频、任务轮询与内容代理 | [使用文档](./kling_wb2api_newapi/README.md) |
 | **Jihuarst Image** | Agent Skill | 文生图、参考图改图、多图融合、局部重绘；多入口与多模型自动回退 | [技能说明](./jihuarst-image/SKILL.md) |
+| **Jihuarst Video** | Agent Skill | 文生视频、单张参考图生视频、异步任务轮询、MP4 下载与双模型回退 | [技能说明](./jihuarst-video/SKILL.md) |
 | **Zaiwen Image Generation** | Agent Skill | 通过在问 OpenAI 兼容 Images API 生成及编辑图像 | [技能说明](./zaiwen-image-generation/SKILL.md) |
 | **Unified Web MCP** | MCP Server | 统一网页搜索与抓取，支持独立路由、故障回退及多提供商接入 | [部署文档](./unified-web-mcp/README.md) |
+
+## 下载客户端 ZIP
+
+每个压缩包只包含对应项目的运行源码、文档、测试和空凭据示例配置，不含真实 `config.json`、`config.local.json`、缓存或本地状态。
+
+| 项目 | 直接下载 |
+|:---|:---|
+| WorkBuddy Kling | [kling_wb2api_newapi.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/kling_wb2api_newapi/kling_wb2api_newapi.zip) |
+| Jihuarst Image | [jihuarst-image.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-image/jihuarst-image.zip) |
+| Jihuarst Video | [jihuarst-video.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-video/jihuarst-video.zip) |
+| Zaiwen Image Generation | [zaiwen-image-generation.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/zaiwen-image-generation/zaiwen-image-generation.zip) |
+| Unified Web MCP 0.1.0 | [unified-web-mcp-0.1.0.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip) |
+
+解压后按各项目文档安装，并从示例配置创建自己的本地配置。ZIP 分发不改变 New API 插件市场边界：市场仍只通过 `index.json` 安装 WorkBuddy Kling 插件。
 
 ## 架构全景
 
@@ -33,12 +48,13 @@ flowchart LR
 
     P --> W[WorkBuddy · Kling Video]
     S --> I[Image Generation APIs]
+    S --> V[Jihuarst Video Gateways]
     M --> R[Search / Fetch Providers]
 
     P -. "index.json 显式发布" .-> G[GitHub Raw Source]
 ```
 
-> **边界清晰：** `kling_wb2api_newapi` 通过 New API 插件市场安装；两个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
+> **边界清晰：** `kling_wb2api_newapi` 通过 New API 插件市场安装；三个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
 
 ## 安装 New API 插件
 
@@ -64,10 +80,11 @@ flowchart LR
 
 ```text
 ~/.claude/skills/jihuarst-image/
+~/.claude/skills/jihuarst-video/
 ~/.claude/skills/zaiwen-image-generation/
 ```
 
-Jihuarst Image 需要 Python 3.9+；复制其 `config.example.json` 为本地的 `config.json`，Zaiwen 则复制为 `config.local.json`，再分别填写自己的密钥。**不要提交真实配置文件。** 详细运行约束见各技能的 `SKILL.md`。
+Jihuarst Image 和 Jihuarst Video 需要 Python 3.9+；分别复制其 `config.example.json` 为本地的 `config.json`，Zaiwen 则复制为 `config.local.json`，再分别填写自己的密钥。**不要提交真实配置文件。** 视频 Skill 使用异步提交、轮询和 MP4 下载，失败回退可能创建多个付费任务；首个默认入口为明文 HTTP，使用限制见 [Jihuarst Video 说明](./jihuarst-video/SKILL.md)。详细运行约束见各技能的 `SKILL.md`。
 
 ## 启动 MCP
 
@@ -93,8 +110,13 @@ claude mcp add --transport stdio unified-web -- node "/absolute/path/to/unified-
 # New API 插件
 cd kling_wb2api_newapi && npm test
 
-# Jihuarst Skill
+# Jihuarst Image Skill
 cd jihuarst-image && python -m unittest discover -s tests -v
+cd ..
+
+# Jihuarst Video Skill
+cd jihuarst-video && python -m unittest discover -s tests -v
+cd ..
 
 # Unified Web MCP
 cd unified-web-mcp && npm test

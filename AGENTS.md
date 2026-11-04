@@ -2,10 +2,11 @@
 
 ## Purpose
 
-This is one public repository containing four independently distributed tools:
+This is one public repository containing five independently distributed tools:
 
 - `kling_wb2api_newapi/`: a New API Task Plugin, distributed through the root `index.json`.
 - `jihuarst-image/`: an Agent Skill, installed into a client's skills directory.
+- `jihuarst-video/`: an Agent Skill, installed into a client's skills directory.
 - `zaiwen-image-generation/`: an Agent Skill, installed into a client's skills directory.
 - `unified-web-mcp/`: an MCP server, configured in an MCP client.
 
@@ -13,7 +14,7 @@ Only the Task Plugin belongs in the New API marketplace. Never add Skills or MCP
 
 ## Repository and installation rules
 
-- Keep the current four top-level project directories. Do not move `kling_wb2api_newapi/plugin.js` to the repository root.
+- Keep the current five top-level project directories. Do not move `kling_wb2api_newapi/plugin.js` to the repository root.
 - New API does **not** recursively scan GitHub repositories. The root `index.json` is the marketplace entry point and must list every installable Task Plugin explicitly.
 - Add a source using the raw index URL, not the repository homepage:
 
@@ -44,15 +45,16 @@ The marketplace intentionally exposes only the latest release through the single
 - Suppress credential values in audit output. Classify obvious test fixtures separately, and do not claim absolute absence of unknown historical secrets.
 - Do not stringify upstream exceptions or response bodies into logs without sanitization; they may echo credentials, authorization headers, request payloads, or large media inputs. Reuse each project's existing redaction path and cover new error paths with an offline test.
 - Keep `node_modules/`, Python caches, logs, `.idea/`, `.remember/`, and other local state out of Git using the root `.gitignore`.
-- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents and local `*.zip`, `*.7z`, `*.rar`, `*.tar`, and `*.tgz` archives out of Git; distribute any needed archive as a GitHub Release asset.
+- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents other than its allowlisted client ZIP, and all non-allowlisted `*.zip`, `*.7z`, `*.rar`, `*.tar`, and `*.tgz` archives, out of Git. Track only the five client ZIPs listed below for direct download.
 - The Skills' local configurations are machine-specific and must not be replaced by real credentials in examples.
+- Never include `config.json`, `config.local.json`, `.env*`, real credentials, caches, local state, or nested archives in distributable ZIPs. Include only example configurations with empty credentials; after packaging, inspect every entry and scan all archived bytes for exact non-empty credential values from local configs without printing those values.
 
 ## Git and GitHub workflow
 
 - Commit, tag, push, or rewrite history only when the user explicitly requests it. Force-pushing, rebasing published work, and hard resets require specific authorization.
 - Use Conventional Commit subjects (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`) and describe the user-visible change. Keep each commit focused; separate source changes from regenerated artifacts.
 - Before committing, inspect `git status`, the complete staged file list, `git diff --cached --check`, and the staged sensitive-data audit. Never rely on ignore rules alone; ignored files can still be force-added, and deleting a leaked file in a later commit does not remove it from history.
-- The checked-in `.githooks/pre-push` wrapper must remain the final local defense. After cloning or changing machines, run `git config core.hooksPath .githooks`; verify with `git config --get core.hooksPath`. The hook requires Node.js, scans every outgoing commit (including staged content on an unborn branch), compares exact non-empty values from ignored local configs, blocks private config paths and archives, and never prints credential values.
+- The checked-in `.githooks/pre-push` wrapper must remain the final local defense. After cloning or changing machines, run `git config core.hooksPath .githooks`; verify with `git config --get core.hooksPath`. The hook requires Node.js, scans every outgoing commit (including staged content on an unborn branch), compares exact non-empty values from ignored local configs, blocks private config paths and non-allowlisted archives, and never prints credential values. The five allowlisted ZIPs are parsed offline with entry, path, nested-archive, and expansion limits; their contents undergo the same private-path and exact-credential checks, and malformed or unsupported ZIPs fail closed.
 - Test the guard with `node --test .githooks/check-push.test.js`. Keep it offline and fail closed. Do not use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed; fix the source or remove the content from every outgoing commit. This heuristic guard cannot prove the absence of unknown secrets.
 - A passing local hook is necessary but not sufficient. Before pushing, verify the remote and branch and inspect `git diff --name-only origin/main...HEAD`; after pushing, compare the GitHub tree with the local commit. GitHub push protection, when available and enabled, is an additional service-side layer rather than a replacement for this check.
 - After changing ignore rules, verify representative paths with `git check-ignore -v` and `git ls-files`; test nested paths explicitly because `*` and `**` have different recursion behavior. Removing a file from the index does not delete its local copy.
@@ -73,10 +75,18 @@ The marketplace intentionally exposes only the latest release through the single
 - Do not add telemetry, automatic updates, crash reporting, implicit downloads, or other undeclared network destinations. Before real paid API calls or external uploads, confirm the requested scope, data leaving the machine, and likely cost; use the smallest useful validation first.
 - Never turn failed, skipped, or unavailable work into a successful or empty result. Preserve explicit failure states in return values and user-visible output; use bounded retries with timeouts and backoff for transient errors, and handle fatal or invalid-input errors before generic retryable ones.
 - When adding or changing cache or resume behavior, bind entries to the source bytes and behavior-affecting configuration, reject stale or mismatched results, and write replacement state atomically so failure preserves the last valid result. Test both first-time creation and rejection of an outdated result.
+- After every upgrade to a distributable project, regenerate its client ZIP without a separate reminder; packaging is part of the upgrade, not an optional follow-up:
+  - `kling_wb2api_newapi/` → `kling_wb2api_newapi/kling_wb2api_newapi.zip`
+  - `jihuarst-image/` → `jihuarst-image/jihuarst-image.zip`
+  - `jihuarst-video/` → `jihuarst-video/jihuarst-video.zip`
+  - `zaiwen-image-generation/` → `zaiwen-image-generation/zaiwen-image-generation.zip`
+  - `unified-web-mcp/` → `unified-web-mcp/unified-web-mcp-package/unified-web-mcp-<version>.zip`
+  Track only these five exact ZIP paths in Git; all other archives remain blocked. Use an explicit file allowlist, verify a clean extraction passes the project's offline tests, compare archived files byte for byte with the current source, and run the archive-content credential and safety audit before staging.
 - Run tests from each project's own directory:
   - Repository push guard: `node --test .githooks/check-push.test.js` (run from the repository root)
   - `kling_wb2api_newapi/`: `npm test`
   - `jihuarst-image/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
+  - `jihuarst-video/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `unified-web-mcp/`: `npm test` (Node.js 24+; use `npm ci` in a clean checkout)
 - Keep automated tests offline with temporary fake configurations and loopback mock services; never require real credentials or paid API calls.
 - Read the final test summary and exit code. Expected failures printed by mock scenarios are not suite failures; do not infer success from selected log lines.
