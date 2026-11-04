@@ -1,0 +1,249 @@
+// WorkBuddy's resolution ladder. Usage is only reported for these values so an
+// unexpected upstream string can never invalidate the seconds/credit facts.
+const USAGE_RESOLUTIONS = ["720P", "768P", "1080P", "2K", "1440P", "4K"];
+const RESOLUTION_SET = new Set(USAGE_RESOLUTIONS);
+
+export const meta = {
+  apiVersion: 1,
+  key: "workbuddy-kling",
+  name: "WorkBuddy Kling",
+  icon: "Kling.Color",
+  description: {
+    en: "Kling video generation through a workbuddy2api-hub gateway",
+    zh: "通过 workbuddy2api-hub 网关生成可灵视频",
+  },
+  version: "1.0.0",
+  author: { name: "Local" },
+  baseUrl: "http://127.0.0.1:8788",
+  models: ["kling-video-v3"],
+  fetchMode: "per_task",
+  protocols: ["openai_video"],
+  usageSchema: {
+    seconds: {
+      type: "number",
+      unit: "second",
+      description: { en: "Video generation unit price", zh: "视频生成单价" },
+    },
+    resolution: {
+      enum: USAGE_RESOLUTIONS,
+      description: { en: "Output video resolution", zh: "输出视频分辨率" },
+    },
+    credit: {
+      type: "number",
+      unit: "credit",
+      description: { en: "WorkBuddy credit unit price", zh: "WorkBuddy 积分单价" },
+    },
+  },
+  usageExamples: [
+    { label: "720P · 5s", facts: { seconds: 5, resolution: "720P" } },
+    { label: "1080P · 10s", facts: { seconds: 10, resolution: "1080P" } },
+  ],
+};
+
+const MAX_INPUT_IMAGE_BYTES = 8 * 1024 * 1024;
+const CONTENT_HEADERS = [
+  "range", "if-range", "if-match", "if-none-match",
+  "if-modified-since", "if-unmodified-since",
+];
+
+function text(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function object(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+}
+
+function positiveSeconds(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const seconds = Number(value);
+  if (!Number.isFinite(seconds) || seconds <= 0) {
+    throw new Error("seconds must be a positive number");
+  }
+  return seconds;
+}
+
+function decodeVideoRequest(ctx) {
+  const body = ctx.body;
+  if (!body || (body.kind !== "json" && body.kind !== "multipart")) {
+    throw new Error("JSON or multipart body required");
+  }
+
+  let req;
+  let file;
+  if (body.kind === "json") {
+    req = object(body.value);
+    if (!req) throw new Error("JSON object required");
+  } else {
+    req = {};
+    for (const name of Object.keys(body.fields || {})) {
+      const values = body.fields[name];
+      if (values.length !== 1) throw new Error(name + " must be provided once");
+      req[name] = values[0];
+    }
+    for (const item of body.files || []) {
+      if (item.field !== "input_reference") {
+        throw new Error("unexpected file field: " + item.field);
+      }
+      if (file) throw new Error("input_reference must be provided once");
+      file = item;
+    }
+  }
+
+  if (!text(req.prompt)) throw new Error("prompt is required");
+  const seconds = positiveSeconds(req.seconds === undefined ? req.duration : req.seconds);
+  const normalized = { ...req, model: ctx.model };
+  delete normalized.duration;
+  delete normalized.wait;
+  if (seconds !== undefined) normalized.seconds = seconds;
+
+  if (file) {
+    if (text(req.input_reference) || text(req.image)) {
+      throw new Error("input_reference file and image URL are mutually exclusive");
+    }
+    normalized.input_reference = {
+      __fileRef: file.ref,
+      encoding: "dataUrl",
+      maxBytes: MAX_INPUT_IMAGE_BYTES,
+    };
+    delete normalized.image;
+  }
+  const action = normalized.input_reference || normalized.image || normalized.reference_images
+    ? "image_to_video" : "text_to_video";
+  return { kind: "submit", model: ctx.model, action, requestBody: normalized };
+}
+
+function contentUrl(ctx) {
+  // Always reconstruct the content URL from the upstream task id instead of
+  // reusing the signed url: WorkBuddy tokens expire (SIGN_TTL_SECONDS=3600) and
+  // are invalidated on hub restart. The Authorization header lets the hub's
+  // API-key fallback authorize downloads of expired links it still owns.
+  if (!text(ctx.upstreamTaskId)) throw new Error("upstream task id is empty");
+  return ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos/" +
+    encodeURIComponent(ctx.upstreamTaskId) + "/content";
+}
+
+/** @param {object} ctx new-api DriverContext. @returns {object} request descriptor. */
+export function buildSubmitRequest(ctx) {
+  const requestBody = object(ctx.requestBody);
+  if (!requestBody || !text(requestBody.prompt)) throw new Error("prompt is required");
+  return {
+    url: ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos",
+    method: "POST",
+    headers: {
+      Authorization: "Bearer " + ctx.apiKey,
+      "Content-Type": "application/json",
+    },
+    body: { ...requestBody, model: ctx.upstreamModel || ctx.model },
+    action: ctx.action,
+  };
+}
+
+/** @param {object} ctx new-api DriverContext. @param {object} resp upstream response. */
+export function parseSubmitResponse(ctx, resp) {
+  const body = object(resp.body);
+  const taskId = body && text(body.id);
+  if (!taskId) throw new Error("upstream task id is empty");
+  return { taskId, taskData: body };
+}
+
+/** @param {object} ctx new-api TaskQueryContext. @returns {object} request descriptor. */
+export function buildQueryRequest(ctx) {
+  return {
+    url: ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos/" + encodeURIComponent(ctx.taskId),
+    method: "GET",
+    headers: { Authorization: "Bearer " + ctx.apiKey },
+  };
+}
+
+/** @param {object} ctx new-api TaskQueryContext. @param {object} body decoded upstream body. */
+export function parseTaskResult(ctx, body) {
+  const data = object(body);
+  if (!data) return { status: "UNKNOWN", reason: "upstream response must be a JSON object" };
+  const statuses = {
+    queued: "QUEUED",
+    pending: "QUEUED",
+    submitted: "SUBMITTED",
+    processing: "IN_PROGRESS",
+    in_progress: "IN_PROGRESS",
+    running: "IN_PROGRESS",
+    completed: "SUCCESS",
+    succeeded: "SUCCESS",
+    failed: "FAILURE",
+    rejected: "FAILURE",
+    cancelled: "FAILURE",
+    lost: "FAILURE",
+  };
+  const status = statuses[data.status];
+  if (!status) {
+    return { status: "UNKNOWN", reason: "unrecognized status: " + String(data.status || "") };
+  }
+  const result = { status };
+  const progress = Number(data.progress);
+  if (status !== "SUCCESS" && Number.isFinite(progress) && progress > 0 && progress < 100) {
+    result.progress = String(progress) + "%";
+  }
+  if (status === "SUCCESS" && text(data.url)) result.url = text(data.url);
+  if (status === "FAILURE") {
+    const error = object(data.error);
+    result.reason = text(error && error.message) || text(data.error) || "video generation failed";
+  }
+  return result;
+}
+
+export function listArtifacts(task) {
+  return task.status === "SUCCESS"
+    ? [{ key: "video", type: "video", mimeType: "video/mp4" }] : [];
+}
+
+export function buildContentRequest(ctx) {
+  if (ctx.artifactKey !== "video") throw new Error("artifact_not_found");
+  const headers = {};
+  for (const name of CONTENT_HEADERS) {
+    for (const key of Object.keys((ctx.clientRequest && ctx.clientRequest.headers) || {})) {
+      if (key.toLowerCase() === name) headers[key] = ctx.clientRequest.headers[key];
+    }
+  }
+  const data = object(ctx.data) || {};
+  return {
+    url: contentUrl(ctx),
+    method: (ctx.clientRequest && ctx.clientRequest.method) || "GET",
+    headers: { ...headers, Authorization: "Bearer " + ctx.apiKey },
+  };
+}
+
+export function extractUsage(ctx) {
+  const req = object(ctx.requestBody) || {};
+  const usage = {};
+  const seconds = positiveSeconds(req.seconds);
+  if (seconds !== undefined) usage.seconds = seconds;
+  const resolution = text(req.resolution).toUpperCase();
+  if (RESOLUTION_SET.has(resolution)) usage.resolution = resolution;
+  return usage;
+}
+
+export function extractUsageOnComplete(ctx, result, body) {
+  const data = object(body) || {};
+  const usage = {};
+  const seconds = Number(data.seconds);
+  if (Number.isFinite(seconds) && seconds > 0) usage.seconds = seconds;
+  const resolution = text(data.resolution).toUpperCase();
+  if (RESOLUTION_SET.has(resolution)) usage.resolution = resolution;
+  const credit = Number(data.credit);
+  if (Number.isFinite(credit) && credit >= 0) usage.credit = credit;
+  return usage;
+}
+
+export const protocols = {
+  openai_video: {
+    decodeRequest: decodeVideoRequest,
+    render: function (ctx, task) {
+      const data = object(task.data) || {};
+      // Drop the upstream relative url: it carries the private WorkBuddy id and
+      // resolves to the wrong namespace on the new-api host. Clients download
+      // through GET /v1/videos/{public-id}/content (buildContentRequest).
+      const { id, task_id, poll, url, ...extensions } = data;
+      return { ...extensions, id: task.task_id };
+    },
+  },
+};

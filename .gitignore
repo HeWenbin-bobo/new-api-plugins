@@ -1,0 +1,25 @@
+# Local credentials: only *.example.json may be published.
+**/config.json
+**/config.local.json
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies and generated files
+**/node_modules/
+unified-web-mcp/unified-web-mcp-package/
+**/__pycache__/
+*.py[cod]
+*.log
+*.tsbuildinfo
+
+# Local editor and agent state
+.omc/
+.remember/
+**/.remember/
+.idea/
+**/.idea/
+.claude/
+.vscode/
+.DS_Store
+Thumbs.db

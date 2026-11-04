@@ -1,0 +1,4 @@
+﻿interface:
+  display_name: "在问图片生成"
+  short_description: "通过 gpt-image-2 生成、编辑并保存图片"
+  default_prompt: "Use $zaiwen-image-generation to create an image with gpt-image-2."

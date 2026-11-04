@@ -1,0 +1,56 @@
+{
+  "server": {
+    "providerTimeoutMs": 12000,
+    "requestTimeoutMs": 40000,
+    "cooldownMs": 30000,
+    "maxSearchResults": 8,
+    "maxFetchChars": 20000,
+    "fallbackOnEmptySearch": false
+  },
+  "routes": {
+    "search": ["free", "minimax", "deepseek"],
+    "fetch": ["free", "minimax", "deepseek"]
+  },
+  "providers": {
+    "free": {
+      "maxResponseBytes": 1000000,
+      "engines": {
+        "search": ["anysearch", "bing", "duckduckgo", "searxng"],
+        "fetch": ["direct", "anysearch", "jina"]
+      },
+      "anysearch": {
+        "baseUrl": "https://api.anysearch.com",
+        "apiKey": "",
+        "zone": "",
+        "language": ""
+      },
+      "duckduckgo": {
+        "baseUrl": "https://html.duckduckgo.com/html/",
+        "region": ""
+      },
+      "searxng": {
+        "baseUrl": "",
+        "language": ""
+      },
+      "jina": {
+        "baseUrl": "https://r.jina.ai",
+        "apiKey": ""
+      }
+    },
+    "minimax": {
+      "command": "uvx",
+      "args": ["minimax-coding-plan-mcp", "-y"],
+      "env": {
+        "MINIMAX_API_KEY": ""
+      },
+      "tools": ["web_search"],
+      "connectTimeoutMs": 15000,
+      "closeTimeoutMs": 5000
+    },
+    "deepseek": {
+      "baseUrl": "https://api.deepseek.com/v1",
+      "apiKey": "",
+      "maxResponseBytes": 1000000
+    }
+  }
+}

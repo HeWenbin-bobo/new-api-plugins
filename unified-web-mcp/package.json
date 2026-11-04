@@ -1,0 +1,24 @@
+{
+  "name": "unified-web-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local Unified Web MCP gateway",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test test/*.test.js",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "cheerio": "1.2.0",
+    "fast-xml-parser": "5.11.2",
+    "undici": "7.30.1",
+    "zod": "4.6.7"
+  }
+}
