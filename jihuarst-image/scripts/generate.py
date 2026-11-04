@@ -408,12 +408,16 @@ def _decode_images(
             if not isinstance(item, dict):
                 raise _ImageDownloadError("图片条目格式无效")
             url = item.get("url", "")
+            try:
+                scheme = urllib.parse.urlsplit(url).scheme.lower() if isinstance(url, str) else ""
+            except ValueError as exc:
+                raise _ImageDownloadError("图片 URL 无效") from exc
             encoded = item.get("b64_json") or (url if isinstance(url, str) and url.startswith("data:") else "")
             if encoded:
                 if not isinstance(encoded, str):
                     raise _ImageDownloadError("图片 base64 字段必须是字符串")
                 raw = _decode_base64_image(encoded)
-            elif isinstance(url, str) and urllib.parse.urlsplit(url).scheme.lower() in {"http", "https"}:
+            elif scheme in {"http", "https"}:
                 # Signed image URLs need no gateway credentials; never forward the API key.
                 try:
                     with _IMAGE_OPENER.open(url, timeout=timeout) as response:
@@ -448,34 +452,59 @@ def _output_targets(output_path: Path, count: int) -> list[Path]:
 
 
 def _write_images_atomically(targets: Sequence[Path], images: Sequence[bytes]) -> list[Path]:
-    """Write each image to a sibling temporary file, then replace its target.
+    """Stage all images and preserve old targets until every replacement succeeds.
 
-    A failed write never truncates or removes a previously saved image.  When
-    several images are requested, a target is replaced only once its complete
-    content has been flushed to disk.
+    If a later replacement fails, earlier existing targets are restored from
+    their backups.  Restoration itself is best-effort: a filesystem that also
+    refuses rollback is reported rather than hidden.
     """
-    saved: list[Path] = []
-    for image_bytes, target in zip(images, targets):
-        target.parent.mkdir(parents=True, exist_ok=True)
-        temp_name: str | None = None
-        try:
+    backups: dict[Path, Path | None] = {}
+    replaced: list[Path] = []
+    temporary_paths: list[Path] = []
+    try:
+        for image_bytes, target in zip(images, targets):
+            target.parent.mkdir(parents=True, exist_ok=True)
             with tempfile.NamedTemporaryFile(
                 dir=target.parent, prefix=target.name + ".", suffix=".tmp", delete=False,
             ) as temporary:
-                temp_name = temporary.name
+                temporary_path = Path(temporary.name)
+                temporary_paths.append(temporary_path)
                 temporary.write(image_bytes)
                 temporary.flush()
                 os.fsync(temporary.fileno())
-            os.replace(temp_name, target)
-            temp_name = None
-            saved.append(target)
-        finally:
-            if temp_name is not None:
-                try:
-                    os.unlink(temp_name)
-                except FileNotFoundError:
-                    pass
-    return saved
+            backups[target] = None
+            if target.exists():
+                backup = target.with_name(target.name + f".backup-{uuid.uuid4().hex}.tmp")
+                os.replace(target, backup)
+                backups[target] = backup
+                temporary_paths.append(backup)
+            replaced.append(target)
+            os.replace(temporary_path, target)
+            temporary_paths.remove(temporary_path)
+    except BaseException:
+        rollback_errors: list[str] = []
+        for target in reversed(replaced):
+            backup = backups[target]
+            try:
+                if backup is None:
+                    target.unlink()
+                else:
+                    os.replace(backup, target)
+                    temporary_paths.remove(backup)
+            except OSError as exc:
+                rollback_errors.append(f"{target}: {type(exc).__name__}")
+        if rollback_errors:
+            raise OSError(
+                "图片替换失败，且部分旧输出无法自动恢复: " + "; ".join(rollback_errors)
+            ) from None
+        raise
+    finally:
+        for temporary_path in temporary_paths:
+            try:
+                temporary_path.unlink()
+            except FileNotFoundError:
+                pass
+    return list(targets)
 
 
 def generate_image(

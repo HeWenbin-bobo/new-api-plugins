@@ -494,6 +494,26 @@ class GenerateTests(unittest.TestCase):
         self.assertNotIn("test-key", str(raised.exception))
         self.assertNotIn("sk-test-secret", str(raised.exception))
 
+    def test_nonterminal_poll_failure_does_not_submit_another_task(self) -> None:
+        with fake_api([200], task_statuses=["queued", "failed"]) as (server, url):
+            real_read = self.module._read_json
+
+            def fail_poll(request, timeout):
+                if request.get_method() == "GET":
+                    raise TimeoutError("poll connection lost")
+                return real_read(request, timeout)
+
+            with mock.patch.object(self.module, "_read_json", side_effect=fail_poll):
+                with self.assertRaises(self.module.PaidDeliveryError) as raised:
+                    self.module.generate_video(
+                        "cat", self.output, "test-key", [url], EXPECTED_MODELS,
+                        timeout=2, poll_interval=0, max_wait=2,
+                    )
+        self.assertIn("task-1", str(raised.exception))
+        self.assertEqual(1, len([r for r in server.requests if r["method"] == "POST"]))
+        self.assertEqual(0, len([r for r in server.requests if r["method"] == "GET"]))
+        self.assertFalse(self.output.exists())
+
     def test_complete_error_summary_is_capped_and_redacted(self) -> None:
         self.assertTrue(hasattr(self.module, "MAX_ERROR_SUMMARY_CHARS"),
                         "summary limit constant is missing")

@@ -769,6 +769,50 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(0, len(second.requests))
         self.assertFalse(self.output.exists())
 
+    def test_malformed_image_url_is_terminal(self) -> None:
+        body = json.dumps({"data": [{"url": "http://[::1"}]}).encode()
+        with fake_api([200], response_body=body) as (first, first_url), \
+                fake_api([200]) as (second, second_url):
+            with self.assertRaises(self.module._PaidDeliveryError):
+                self.module.generate_image(
+                    "cat", self.output, "test-key", [first_url, second_url],
+                    ["hunyuan-image-alpha"], 2,
+                )
+        self.assertEqual(1, len(first.requests))
+        self.assertEqual(0, len(second.requests))
+        self.assertFalse(self.output.exists())
+
+    def test_later_replace_failure_restores_earlier_output(self) -> None:
+        first, second = self.module._output_targets(self.output, 2)
+        first.write_bytes(b"first-original")
+        second.write_bytes(b"second-original")
+        real_replace = self.module.os.replace
+        replaced_sources = []
+        failed_once = False
+
+        def fail_second_replace(source, target):
+            nonlocal failed_once
+            if Path(target) == second and not failed_once:
+                failed_once = True
+                raise PermissionError("second target locked")
+            replaced_sources.append(Path(source))
+            return real_replace(source, target)
+
+        with mock.patch.object(self.module.os, "replace", side_effect=fail_second_replace):
+            with self.assertRaises(PermissionError):
+                self.module._write_images_atomically([first, second], [IMAGE_BYTES, IMAGE_BYTES])
+        self.assertEqual(b"first-original", first.read_bytes())
+        self.assertEqual(b"second-original", second.read_bytes())
+        restored_sources = [
+            source for source in replaced_sources if ".backup-" in source.name
+        ]
+        self.assertEqual({first, second}, {
+            source.with_name(source.name.split(".backup-", 1)[0])
+            for source in restored_sources
+        })
+        self.assertEqual([], list(Path(self.tempdir.name).glob("*.tmp")))
+        self.assertEqual([], list(Path(self.tempdir.name).glob("*.backup-*")))
+
     def test_revised_prompt_is_surfaced(self) -> None:
         with fake_api([200]) as (server, url):
             result = self.module.generate_image("cat", self.output, "test-key",

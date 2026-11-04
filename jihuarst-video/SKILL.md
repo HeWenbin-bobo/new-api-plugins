@@ -71,13 +71,13 @@ Key 保存在技能根目录的 `config.json`；将 `config.example.json` 复制
 | 5–6 | `https://api.jihuarst.top` | 同上 |
 | 7–8 | `https://sg-api.jihuarst.top` | 同上 |
 
-指定 `--model` 或 `--base-url` 会缩小回退范围。提交成功且任务处于 `queued`、`pending`、`submitted`、`processing`、`in_progress` 或 `running` 时只轮询该任务，不会重复提交。`completed` / `succeeded` 才进入下载；`failed`、`rejected`、`cancelled`、`lost`、未知或空状态、超时、网络或响应解析错误均明确失败并继续回退。
+指定 `--model` 或 `--base-url` 会缩小回退范围。提交成功且任务处于 `queued`、`pending`、`submitted`、`processing`、`in_progress` 或 `running` 时只轮询该任务，不会重复提交。`completed` / `succeeded` 才进入下载；上游明确返回 `failed`、`rejected`、`cancelled` 或 `lost` 时回退到下一组合。取得任务 ID 后，未知或空状态、等待超时、网络、HTTP 或响应解析错误均保留该任务 ID 并终止，不创建另一任务。
 
 提交成功后立即在 stderr 记录任务 ID，便于只读查询与恢复；日志及成功 JSON 中的任务 ID 会脱敏。完成响应有非空 `url` 时先下载该地址，相对地址按当前网关解析；下载失败或地址无效则对**同一任务**请求同源 `/v1/videos/{id}/content`，不会再次提交。没有 `url` 时直接使用该 content 地址。跨源 URL 或跨源重定向不会携带网关 key；同源下载可使用 key。仅允许 HTTP(S) 地址与重定向，HTTPS 不允许降级到 HTTP。提交与轮询 JSON 响应上限为 8 MiB。为防 SSRF，提交、轮询、下载及其重定向均必须解析到公网 IP，连接固定到已校验 IP，不使用系统代理；私网、回环、链路本地、组播及保留地址会被拒绝。
 
 下载先验证初始内容第 4–7 字节为 `ftyp`，再流式写入输出目录中的临时文件；MP4 上限为 1 GiB。响应和临时文件成功关闭并 flush/fsync 后才原子替换目标。失败会清理临时文件并保留已有输出。两个候选地址都失败时，以“任务已计费但下载失败”终止，错误保留任务 ID，不继续下一模型或入口，也不提交新任务；请使用同一任务 ID 重试下载或检查网关的 content/artifact 代理。本地写入、权限等错误同样不会触发重新提交。
 
-> **费用提醒：** 提交、轮询或任务终态失败后的回退可能创建多个上游任务并产生多次费用；任务完成后的下载失败只尝试同一任务的返回地址和 content 地址，不会再创建任务。默认最多有 8 个 URL/模型组合，这是回退上限，不是固定的任务数或价格。实际计费规则未通过本 Skill 验证，付费运行前应确认网关价格并尽量用单个 `--model` / `--base-url` 做最小验证。
+> **费用提醒：** 提交前失败或上游明确报告任务终态失败后的回退可能创建多个上游任务并产生多次费用。取得任务 ID 后的非终态轮询异常会保留任务 ID 并终止；任务完成后的下载失败只尝试同一任务的返回地址和 content 地址，不会再创建任务。默认最多有 8 个 URL/模型组合，这是回退上限，不是固定的任务数或价格。实际计费规则未通过本 Skill 验证，付费运行前应确认网关价格并尽量用单个 `--model` / `--base-url` 做最小验证。
 
 > **明文入口警告：** 首选地址 `http://222.211.75.198:3000` 使用 HTTP 明文连接，key、提示词和参考图在该链路上不加密。公网或不可信网络中请用 `--base-url https://api.jihuarst.top`（或其他 HTTPS 入口）跳过它。
 

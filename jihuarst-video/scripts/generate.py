@@ -55,12 +55,12 @@ class VideoDownloadError(RuntimeError):
     """Retryable remote MP4 failure; never wrap local output or programming errors."""
 
 
-class PaidDeliveryError(RuntimeError):
-    """The task completed and was billed, but no artifact could be retrieved.
+class TaskTerminalError(RuntimeError):
+    """The upstream explicitly rejected or ended the task; fallback is allowed."""
 
-    This is terminal: retrying another URL/model combination would submit and
-    pay for a brand-new task instead of recovering the one already paid for.
-    """
+
+class PaidDeliveryError(RuntimeError):
+    """A task ID exists, so automatic fallback could create another paid task."""
 
 
 def redact_secrets(text: str, api_key: str) -> str:
@@ -279,7 +279,7 @@ def _poll_task(
         if status in SUCCESS:
             return result
         if status in FAILURE:
-            raise RuntimeError(f"视频任务终止，状态: {redact_secrets(str(status), api_key)}")
+            raise TaskTerminalError(f"视频任务终止，状态: {redact_secrets(str(status), api_key)}")
         if status not in PENDING:
             raise RuntimeError(f"视频任务返回未知状态: {redact_secrets(str(status), api_key)}")
         time.sleep(poll_interval)
@@ -460,14 +460,34 @@ def generate_video(
                     "任务已提交: %s | %s", attempt_target,
                     redact_secrets(task_id, api_key),
                 )
-                completed = _poll_task(
-                    base_url, task_id, api_key, timeout, poll_interval, max_wait,
-                )
+                try:
+                    completed = _poll_task(
+                        base_url, task_id, api_key, timeout, poll_interval, max_wait,
+                    )
+                except TaskTerminalError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    exc.close()
+                    raise PaidDeliveryError(
+                        f"视频任务可能已计费，但轮询失败；未提交新的请求或任务。"
+                        f"任务 ID: {redact_secrets(task_id, api_key)}"
+                        f"（{attempt_target}），HTTP {exc.code}"
+                    ) from None
+                except (OSError, http.client.HTTPException, ValueError, RuntimeError) as exc:
+                    raise PaidDeliveryError(
+                        f"视频任务可能已计费，但轮询失败；未提交新的请求或任务。"
+                        f"任务 ID: {redact_secrets(task_id, api_key)}"
+                        f"（{attempt_target}）\n{type(exc).__name__}: "
+                        f"{redact_secrets(str(exc), api_key)}"
+                        f"\n请使用同一任务 ID 只读查询或恢复，不要直接重新生成。"
+                    ) from exc
             except urllib.error.HTTPError as exc:
                 try:
                     summary = f"{base_url} | {model} | HTTP {exc.code}"
                 finally:
                     exc.close()
+            except PaidDeliveryError:
+                raise
             except (OSError, http.client.HTTPException, ValueError, RuntimeError) as exc:
                 summary = (
                     f"{base_url} | {model} | {type(exc).__name__}: {exc}"
