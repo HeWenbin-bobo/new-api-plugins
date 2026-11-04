@@ -29,12 +29,12 @@ When releasing `workbuddy-kling`:
 
 1. Run the plugin's offline tests.
 2. Increment `meta.version` in `kling_wb2api_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
-3. Add a new entry to `index.json` under `plugins[0].versions`; do not overwrite an existing version with different source.
+3. Replace `plugins[0].versions` in `index.json` with a single entry for the new release, removing superseded versions. Never reuse an existing version number for different source.
 4. Set `latest` to the new version and update `sha256` to the lowercase SHA-256 hash of the exact LF-normalized `plugin.js` bytes. `.gitattributes` preserves this format across Windows checkouts.
 5. Keep `key`, `models`, `protocols`, `minApiVersion`, and `kind` consistent with the plugin manifest and API contract.
 6. Validate that the raw index and source URLs return HTTP 200 after pushing. Do not claim marketplace installation was tested unless it was exercised in New API itself.
 
-Releases need immutable versioned source paths if multiple versions are retained. Until a second release exists, the single current path is sufficient.
+The marketplace intentionally exposes only the latest release through the single current source path; older source remains in Git history but is not listed for installation.
 
 ## Secrets and local artifacts
 
