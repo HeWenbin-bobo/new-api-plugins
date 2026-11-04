@@ -1,11 +1,37 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { inflateRawSync } from 'node:zlib';
 
 const ZERO = '0'.repeat(40);
 const LIMIT = 5 * 1024 * 1024;
+const ARCHIVE = /\.(?:zip|7z|rar|tar|tgz)$/i;
+const RELEASE_ZIPS = new Set([
+  'kling_wb2api_newapi/kling_wb2api_newapi.zip',
+  'jihuarst-image/jihuarst-image.zip',
+  'jihuarst-video/jihuarst-video.zip',
+  'zaiwen-image-generation/zaiwen-image-generation.zip',
+  'unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip',
+]);
+const MAX_ZIP_ENTRIES = 2048;
+const MAX_ZIP_ENTRY_BYTES = 16 * 1024 * 1024;
+const MAX_ZIP_TOTAL_BYTES = 64 * 1024 * 1024;
 const args = process.argv.slice(2);
 const findings = new Set();
+
+class ZipError extends Error {}
+
+const crcTable = Array.from({ length: 256 }, (_, index) => {
+  let value = index;
+  for (let bit = 0; bit < 8; bit += 1) value = value & 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+  return value >>> 0;
+});
+
+function crc32(data) {
+  let crc = 0xffffffff;
+  for (const byte of data) crc = crcTable[(crc ^ byte) & 0xff] ^ (crc >>> 8);
+  return (crc ^ 0xffffffff) >>> 0;
+}
 
 function git(commandArgs, input) {
   const result = spawnSync('git', commandArgs, {
@@ -78,16 +104,100 @@ function localSecrets() {
   return [...new Set(secrets)].filter((value) => value.length <= 4096);
 }
 
+function zipEnd(data) {
+  if (data.length < 22) throw new ZipError('malformed ZIP archive');
+  const earliest = Math.max(0, data.length - 22 - 65535);
+  for (let offset = data.length - 22; offset >= earliest; offset -= 1) {
+    if (data.readUInt32LE(offset) !== 0x06054b50) continue;
+    if (offset + 22 + data.readUInt16LE(offset + 20) !== data.length) continue;
+    return offset;
+  }
+  throw new ZipError('malformed ZIP archive');
+}
+
+function zipEntryPath(name) {
+  if (!name || name.includes('\0') || name.includes('\\')) throw new ZipError('unsafe ZIP entry path');
+  if (name.startsWith('/') || /^[a-z]:/i.test(name)) throw new ZipError('unsafe ZIP entry path');
+  if (name.split('/').some((part) => part === '..')) throw new ZipError('unsafe ZIP entry path');
+  return name;
+}
+
+function inspectZip(path, data, secrets) {
+  try {
+    const end = zipEnd(data);
+    const count = data.readUInt16LE(end + 10);
+    const directorySize = data.readUInt32LE(end + 12);
+    const directoryOffset = data.readUInt32LE(end + 16);
+    if (data.readUInt16LE(end + 4) !== 0 || data.readUInt16LE(end + 6) !== 0 || data.readUInt16LE(end + 8) !== count) {
+      throw new ZipError('unsupported multi-disk ZIP archive');
+    }
+    if (count === 0xffff || directorySize === 0xffffffff || directoryOffset === 0xffffffff) {
+      throw new ZipError('unsupported ZIP64 archive');
+    }
+    if (count > MAX_ZIP_ENTRIES) throw new ZipError(`too many ZIP entries (limit ${MAX_ZIP_ENTRIES})`);
+    if (directoryOffset + directorySize > end) throw new ZipError('malformed ZIP central directory');
+    let cursor = directoryOffset;
+    let totalSize = 0;
+    for (let index = 0; index < count; index += 1) {
+      if (cursor + 46 > data.length || data.readUInt32LE(cursor) !== 0x02014b50) throw new ZipError('malformed ZIP central directory');
+      const flags = data.readUInt16LE(cursor + 8);
+      const method = data.readUInt16LE(cursor + 10);
+      const checksum = data.readUInt32LE(cursor + 16);
+      const compressedSize = data.readUInt32LE(cursor + 20);
+      const size = data.readUInt32LE(cursor + 24);
+      const nameLength = data.readUInt16LE(cursor + 28);
+      const extraLength = data.readUInt16LE(cursor + 30);
+      const commentLength = data.readUInt16LE(cursor + 32);
+      const localOffset = data.readUInt32LE(cursor + 42);
+      if (cursor + 46 + nameLength + extraLength + commentLength > data.length) throw new ZipError('malformed ZIP central directory');
+      const name = zipEntryPath(text(data.subarray(cursor + 46, cursor + 46 + nameLength)));
+      cursor += 46 + nameLength + extraLength + commentLength;
+      if (flags & 0x41) throw new ZipError(`encrypted ZIP entry: ${name}`);
+      if (method !== 0 && method !== 8) throw new ZipError(`unsupported ZIP compression method: ${name}`);
+      if ([compressedSize, size, localOffset].includes(0xffffffff)) throw new ZipError('unsupported ZIP64 archive');
+      totalSize += size;
+      if (size > MAX_ZIP_ENTRY_BYTES || totalSize > MAX_ZIP_TOTAL_BYTES) throw new ZipError('ZIP expansion limit exceeded');
+      if (ARCHIVE.test(name)) {
+        findings.add(`${path}!/${name}: nested archive`);
+        continue;
+      }
+      if (name.endsWith('/')) continue;
+      if (localOffset + 30 > data.length || data.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError(`malformed ZIP local header: ${name}`);
+      if (data.readUInt16LE(localOffset + 8) !== method) throw new ZipError(`malformed ZIP local header: ${name}`);
+      const start = localOffset + 30 + data.readUInt16LE(localOffset + 26) + data.readUInt16LE(localOffset + 28);
+      if (start + compressedSize > data.length) throw new ZipError(`truncated ZIP entry: ${name}`);
+      const compressed = data.subarray(start, start + compressedSize);
+      let content;
+      try {
+        content = method === 0 ? compressed : inflateRawSync(compressed, { maxOutputLength: MAX_ZIP_ENTRY_BYTES + 1 });
+      } catch {
+        throw new ZipError(`malformed ZIP entry data: ${name}`);
+      }
+      if (content.length !== size || (method === 0 && compressedSize !== size)) throw new ZipError(`malformed ZIP entry size: ${name}`);
+      if (crc32(content) !== checksum) throw new ZipError(`ZIP entry checksum mismatch: ${name}`);
+      inspect(`${path}!/${name}`, content, secrets);
+    }
+  } catch (error) {
+    findings.add(`${path}: ${error instanceof ZipError ? error.message : 'malformed ZIP archive'}`);
+  }
+}
+
 function inspect(path, data, secrets) {
-  if (findings.size >= 30 || data.length > LIMIT) {
-    if (data.length > LIMIT) findings.add(`${path}: file exceeds the 5 MB scan limit`);
+  if (findings.size >= 30) return;
+  if (RELEASE_ZIPS.has(path)) {
+    if (data.length > MAX_ZIP_TOTAL_BYTES) findings.add(`${path}: ZIP exceeds the 64 MB archive limit`);
+    else inspectZip(path, data, secrets);
+    return;
+  }
+  if (data.length > LIMIT) {
+    findings.add(`${path}: file exceeds the 5 MB scan limit`);
     return;
   }
   const lower = path.toLowerCase();
   if (/(?:^|\/)(?:config(?:\.local)?\.json|\.env(?:\..+)?)$/.test(lower) && !lower.endsWith('/.env.example') && lower !== '.env.example') {
     findings.add(`${path}: private local configuration`);
   }
-  if (/\.(?:zip|7z|rar|tar|tgz)$/i.test(path)) findings.add(`${path}: generated archive; use a Release asset`);
+  if (ARCHIVE.test(path)) findings.add(`${path}: generated archive; use a Release asset`);
   if (/(?:^|\/)(?:node_modules|__pycache__|\.idea|\.vscode|\.omc|\.remember)\//.test(lower)) findings.add(`${path}: local dependency or tool state`);
   if (data.includes(0)) return;
   const source = text(data);

@@ -12,8 +12,15 @@
 *.rar
 *.tar
 *.tgz
-unified-web-mcp/unified-web-mcp-package/
+unified-web-mcp/unified-web-mcp-package/*
+# Only these five reviewed client distributions are tracked.
+!kling_wb2api_newapi/kling_wb2api_newapi.zip
+!jihuarst-image/jihuarst-image.zip
+!jihuarst-video/jihuarst-video.zip
+!zaiwen-image-generation/zaiwen-image-generation.zip
+!unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip
 **/__pycache__/
+**/test-results/
 *.py[cod]
 *.log
 *.tsbuildinfo
