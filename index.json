@@ -21,12 +21,20 @@
           ]
         }
       ],
-      "latest": "1.0.0",
+      "latest": "1.0.1",
       "versions": [
         {
           "version": "1.0.0",
           "path": "kling_wb2api_newapi/plugin.js",
           "sha256": "e90a7bfc60c7a8f4fc65b99012c28937db204aa725d2755d6c864e38562fc36e",
+          "minApiVersion": 1,
+          "kind": "task",
+          "baseUrl": "http://127.0.0.1:8788"
+        },
+        {
+          "version": "1.0.1",
+          "path": "kling_wb2api_newapi/plugin.js",
+          "sha256": "e71c4b307b26d346cacfacbb154adfe7578549c4aa671813b23702e41d9669dd",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:8788"

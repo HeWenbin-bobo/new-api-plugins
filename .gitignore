@@ -7,6 +7,11 @@
 
 # Dependencies and generated files
 **/node_modules/
+*.zip
+*.7z
+*.rar
+*.tar
+*.tgz
 unified-web-mcp/unified-web-mcp-package/
 **/__pycache__/
 *.py[cod]

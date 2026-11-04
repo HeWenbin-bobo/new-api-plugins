@@ -12,7 +12,7 @@ export const meta = {
     en: "Kling video generation through a workbuddy2api-hub gateway",
     zh: "通过 workbuddy2api-hub 网关生成可灵视频",
   },
-  version: "1.0.0",
+  version: "1.0.1",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:8788",
   models: ["kling-video-v3"],
@@ -35,8 +35,8 @@ export const meta = {
     },
   },
   usageExamples: [
-    { label: "720P · 5s", facts: { seconds: 5, resolution: "720P" } },
-    { label: "1080P · 10s", facts: { seconds: 10, resolution: "1080P" } },
+    { label: "720P · 5s", facts: { seconds: 5, resolution: "720P", credit: 1 } },
+    { label: "1080P · 10s", facts: { seconds: 10, resolution: "1080P", credit: 1 } },
   ],
 };
 

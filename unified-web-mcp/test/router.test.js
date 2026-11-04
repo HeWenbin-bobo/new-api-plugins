@@ -187,7 +187,7 @@ test('does not mutate provider results', async () => {
 });
 
 test('sanitizes provider credentials from errors and status', async () => {
-  const secret = 'router-test-secret';
+  const secret = 'router-test-secret-not-a-real-key';
   const config = baseConfig();
   config.providers.minimax.env = { MINIMAX_API_KEY: secret };
   const router = createRouter(config, {

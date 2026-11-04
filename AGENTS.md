@@ -44,14 +44,17 @@ Releases need immutable versioned source paths if multiple versions are retained
 - Suppress credential values in audit output. Classify obvious test fixtures separately, and do not claim absolute absence of unknown historical secrets.
 - Do not stringify upstream exceptions or response bodies into logs without sanitization; they may echo credentials, authorization headers, request payloads, or large media inputs. Reuse each project's existing redaction path and cover new error paths with an offline test.
 - Keep `node_modules/`, Python caches, logs, `.idea/`, `.remember/`, and other local state out of Git using the root `.gitignore`.
-- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents out of Git; distribute any needed ZIP as a GitHub Release asset.
+- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents and local `*.zip`, `*.7z`, `*.rar`, `*.tar`, and `*.tgz` archives out of Git; distribute any needed archive as a GitHub Release asset.
 - The Skills' local configurations are machine-specific and must not be replaced by real credentials in examples.
 
 ## Git and GitHub workflow
 
 - Commit, tag, push, or rewrite history only when the user explicitly requests it. Force-pushing, rebasing published work, and hard resets require specific authorization.
 - Use Conventional Commit subjects (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`) and describe the user-visible change. Keep each commit focused; separate source changes from regenerated artifacts.
-- Before committing, inspect `git status`, the complete staged file list, `git diff --cached --check`, and the staged sensitive-data audit. Never rely on ignore rules alone.
+- Before committing, inspect `git status`, the complete staged file list, `git diff --cached --check`, and the staged sensitive-data audit. Never rely on ignore rules alone; ignored files can still be force-added, and deleting a leaked file in a later commit does not remove it from history.
+- The checked-in `.githooks/pre-push` wrapper must remain the final local defense. After cloning or changing machines, run `git config core.hooksPath .githooks`; verify with `git config --get core.hooksPath`. The hook requires Node.js, scans every outgoing commit (including staged content on an unborn branch), compares exact non-empty values from ignored local configs, blocks private config paths and archives, and never prints credential values.
+- Test the guard with `node --test .githooks/check-push.test.js`. Keep it offline and fail closed. Do not use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed; fix the source or remove the content from every outgoing commit. This heuristic guard cannot prove the absence of unknown secrets.
+- A passing local hook is necessary but not sufficient. Before pushing, verify the remote and branch and inspect `git diff --name-only origin/main...HEAD`; after pushing, compare the GitHub tree with the local commit. GitHub push protection, when available and enabled, is an additional service-side layer rather than a replacement for this check.
 - After changing ignore rules, verify representative paths with `git check-ignore -v` and `git ls-files`; test nested paths explicitly because `*` and `**` have different recursion behavior. Removing a file from the index does not delete its local copy.
 - Check binary and generated-file sizes before staging. Keep tracked files below a 95 MB safety limit; use Git LFS, a GitHub Release asset, or an external link rather than approaching GitHub's 100 MB file limit.
 - This repository is public. Before pushing, verify the remote and branch, confirm authorization for included third-party content, and treat every current and historical object as publicly distributable.
@@ -71,6 +74,7 @@ Releases need immutable versioned source paths if multiple versions are retained
 - Never turn failed, skipped, or unavailable work into a successful or empty result. Preserve explicit failure states in return values and user-visible output; use bounded retries with timeouts and backoff for transient errors, and handle fatal or invalid-input errors before generic retryable ones.
 - When adding or changing cache or resume behavior, bind entries to the source bytes and behavior-affecting configuration, reject stale or mismatched results, and write replacement state atomically so failure preserves the last valid result. Test both first-time creation and rejection of an outdated result.
 - Run tests from each project's own directory:
+  - Repository push guard: `node --test .githooks/check-push.test.js` (run from the repository root)
   - `kling_wb2api_newapi/`: `npm test`
   - `jihuarst-image/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `unified-web-mcp/`: `npm test` (Node.js 24+; use `npm ci` in a clean checkout)

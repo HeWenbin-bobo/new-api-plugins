@@ -23,7 +23,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-kling`，版本为 `1.0.0`。
+3. 插件 key 为 `workbuddy-kling`，版本为 `1.0.1`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 

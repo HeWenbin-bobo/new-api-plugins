@@ -33,6 +33,13 @@ test('manifest declares the OpenAI video protocol without a channel override', (
   assert.equal(meta.channelTypes, undefined);
 });
 
+test('usage examples include numeric credit facts', () => {
+  assert.ok(meta.usageExamples.length > 0);
+  for (const example of meta.usageExamples) {
+    assert.equal(typeof example.facts.credit, 'number');
+  }
+});
+
 test('decodes JSON text-to-video and builds an authenticated submission', () => {
   const decoded = protocols.openai_video.decodeRequest({
     body: { kind: 'json', value: { prompt: 'A cat', seconds: '5', size: '1280x720' } },
