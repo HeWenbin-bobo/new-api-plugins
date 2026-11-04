@@ -5,7 +5,7 @@ description: Use when 用户要求使用 jihuarst 生成或编辑图片、需要
 
 # jihuarst 生图 / 改图
 
-使用 OpenAI 兼容接口出图，只依赖 Python 3.9+ 标准库（测试与 `PIL` 相关校验另需 Pillow）。
+使用 OpenAI 兼容接口出图，运行与离线测试均只依赖 Python 3.9+ 标准库。
 
 两种模式，按是否传参考图自动选择：
 
@@ -82,9 +82,9 @@ Key 保存在技能根目录的 `config.json`；将 `config.example.json` 复制
 
 模型链按模式分流：**不传 `-r` 的文生图**末位追加 `hunyuan-image-alpha`；**传 `-r` 的改图**末位追加 `hunyuan-image-alpha-edit`。混元 `-edit` 是上游目录标记的 `image-to-image` 模型，**只能与参考图一起用于 edits 模式**，因此不会进入默认文生图回退链；反之 `hunyuan-image-alpha` 标记为 `text-to-image`，不进入默认改图链。显式 `--model` 指定时跳过该分流（只试这一个模型），便于调试。
 
-新入口的 `/v1/models` 已确认包含这两个模型 ID；模式依据上游目录标签与[混元接入文档](https://github.com/dingminhua/dsh-connect-workbuddy/blob/main/docs/IMAGE_GEN.md)。下方尺寸、质量、透明背景等实测结论来自三个 GPT Image 模型，不代表混元模型已完成出图实测。
+新入口的 `/v1/models` 已确认包含这两个模型 ID；模式依据上游目录标签与[混元接入文档](https://github.com/dingminhua/dsh-connect-workbuddy/blob/main/docs/IMAGE_GEN.md)。2026-11-04 已在新入口分别完成一次 `hunyuan-image-alpha` 文生图和一次 `hunyuan-image-alpha-edit` 单参考图改图，均成功返回并保存 1792×1344 PNG。下方尺寸、质量、透明背景等参数实测结论仍仅来自三个 GPT Image 模型，不外推到混元模型。
 
-每次请求使用 `n=<count>`、`response_format=b64_json`，默认单次超时 180 秒。网络错误、HTTP 错误、响应解析错误都继续下一组合；保存成功后立即停止。**只有全部 16 个默认组合失败，才能说“jihuarst 生图 skill 当前无法使用”**，并附各组合失败摘要。
+每次请求使用 `n=<count>`、`response_format=b64_json`，默认单次超时 180 秒。生成接口仅跟随同源 HTTP(S) 重定向；跨源或 HTTPS 降级会拒绝当前组合并继续回退，不会把网关 API key 转发给其他源。生成 JSON 响应上限为 256 MiB，HTTP 错误正文读取上限为 64 KiB，超限或错误正文读取失败都会继续回退。响应支持 `b64_json`、data URL 与 HTTP(S) 图片 URL；三种图片来源统一执行 64 MiB 单图上限和 PNG/JPEG/GIF/WebP 签名校验，远程图片下载不会向图片地址转发网关 API key。为防 SSRF，初始 URL 和每次重定向仅允许解析到公网 IP 的 HTTP(S) 地址，连接固定到已校验 IP 且不跟随系统代理，HTTPS 保留原主机名进行证书校验；私网、回环、链路本地、组播和保留地址会拒绝当前下载并继续回退。图片重定向响应会及时关闭，避免读取不受信任的多余响应体。生成请求的网络错误、HTTP 错误、响应解析错误、远程图片下载失败、超限或非图片响应都继续下一组合；非 HTTP(S) 重定向会拒绝当前请求并继续回退，保存成功后立即停止。**下载失败后的回退可能再次调用生图并产生多次费用，以尽力交付图片为优先**。只有全部 16 个默认生成组合失败，才能说“jihuarst 生图 skill 当前无法使用”，并附各组合失败摘要。
 
 > 首选地址 `http://222.211.75.198:3000` 是 **HTTP 明文连接**（非 HTTPS）：key、提示词与参考图在该链路上不加密，仅建议在可信内网/专线环境使用；公网环境可临时用 `--base-url` 跳过它。
 > `sg-api` 为网关 `/api/status` 公告的新加坡备用入口，已实测可用；若某段时间不可达会自动回退到其他地址。
@@ -126,4 +126,4 @@ Key 保存在技能根目录的 `config.json`；将 `config.example.json` 复制
 python -m unittest discover -s tests -v
 ```
 
-测试通过本地模拟 API 验证：URL/模型优先级、文生图与改图各自的混元模型链、`-edit` 不进入默认文生图链、显式模型覆盖、全部组合失败后的报错、edits 与 generations 的自动切换、单图/多图 `image[]`/`mask` 字段、`size/quality/input_fidelity` 透传、JSON 里 `n` 保持整数、多图编号输出、key 脱敏。**不调用真实 API、不产生费用。**
+测试通过本地模拟 API 验证：URL/模型优先级、文生图与改图各自的混元模型链、`-edit` 不进入默认文生图链、显式模型覆盖、全部组合失败后的报错、edits 与 generations 的自动切换、单图/多图 `image[]`/`mask` 字段、`size/quality/input_fidelity` 透传、JSON 里 `n` 保持整数、多图编号输出、base64/data URL/远程 URL（含协议大小写）解析、生成接口同源重定向与跨源 key 隔离、截断错误正文回退、生成 JSON 与错误正文读取上限、所有图片来源的 64 MiB 上限和签名验证、HTTP(S) 图片重定向、下载不透传 key、SSRF 公网地址限制、DNS 混合地址与组播/保留地址拒绝、生产策略下的私网重定向拒绝、HTTPS IP 固定与 SNI、TLS 证书必需、禁用环境代理、图片重定向响应关闭、非 HTTP(S) 重定向与非图片响应拒绝及回退、下载失败后继续回退、key 脱敏。**不调用真实 API、不产生费用。**

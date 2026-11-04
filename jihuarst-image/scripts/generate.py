@@ -9,24 +9,27 @@ Supports two server modes:
 
 Every URL is tried in turn; within a URL every model is tried; the first
 combination that returns a usable image wins.  Only the Python standard
-library is required at runtime (Pillow is used by ``--inspect`` and the tests,
-never for the request path itself).
+library is required at runtime and for the offline tests.
 """
 
 from __future__ import annotations
 
 import argparse
 import base64
+import http.client
+import ipaddress
 import json
 import logging
 import mimetypes
 import re
+import socket
 import urllib.error
+import urllib.parse
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Any, Iterable, Sequence
 
 BASE_URLS = [
     "http://222.211.75.198:3000",
@@ -45,9 +48,134 @@ SECRET_PATTERN = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+\b")
 # 1254x1254 default.  Verified against the live gateway: 1024x1024 and
 # 512x512 both came back as 1254x1254, while 1024x1536 / 1536x1024 were kept.
 MIN_HONOURED_PIXELS = 1254 * 1254
+MAX_IMAGE_BYTES = 64 * 1024 * 1024
+MAX_RESPONSE_BYTES = 256 * 1024 * 1024
+MAX_ERROR_BODY_BYTES = 64 * 1024
 
 ENDPOINT_GENERATIONS = "/v1/images/generations"
 ENDPOINT_EDITS = "/v1/images/edits"
+
+
+class _ImageDownloadError(RuntimeError):
+    """Image retrieval failed; the caller can try the next URL/model combination."""
+
+
+class _HTTPOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
+    def _validate_redirect(self, req: urllib.request.Request, newurl: str) -> None:
+        if urllib.parse.urlsplit(newurl).scheme.lower() not in {"http", "https"}:
+            raise _ImageDownloadError("图片重定向仅支持 HTTP(S)")
+
+    def redirect_request(
+        self, req: urllib.request.Request, fp: Any, code: int, msg: str,
+        headers: Any, newurl: str,
+    ) -> urllib.request.Request | None:
+        try:
+            self._validate_redirect(req, newurl)
+            return super().redirect_request(req, fp, code, msg, headers, newurl)
+        finally:
+            # Do not let urllib drain an untrusted, potentially endless redirect body.
+            fp.close()
+
+
+class _SameOriginRedirectHandler(_HTTPOnlyRedirectHandler):
+    def _validate_redirect(self, req: urllib.request.Request, newurl: str) -> None:
+        super()._validate_redirect(req, newurl)
+        old = urllib.parse.urlsplit(req.full_url)
+        new = urllib.parse.urlsplit(newurl)
+        old_origin = (
+            old.scheme.lower(), old.hostname,
+            old.port or (443 if old.scheme.lower() == "https" else 80),
+        )
+        new_origin = (
+            new.scheme.lower(), new.hostname,
+            new.port or (443 if new.scheme.lower() == "https" else 80),
+        )
+        if old_origin != new_origin:
+            raise _ImageDownloadError("生成接口重定向仅允许同源 HTTP(S)")
+
+
+def _resolved_addresses(hostname: str, port: int,
+                        allow_private: bool = False) -> list[str]:
+    """Resolve once, rejecting non-public results unless explicitly testing locally."""
+    addresses: list[ipaddress.IPv4Address | ipaddress.IPv6Address] = []
+    for info in socket.getaddrinfo(hostname, port, type=socket.SOCK_STREAM):
+        address = ipaddress.ip_address(info[4][0].split("%", 1)[0])
+        if address not in addresses:
+            addresses.append(address)
+    if not allow_private and any(
+        not address.is_global or address.is_multicast or address.is_reserved
+        for address in addresses
+    ):
+        raise _ImageDownloadError("图片地址仅允许公网 HTTP(S)")
+    return [str(address) for address in addresses]
+
+
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """Connect to a validated numeric address, not a second DNS resolution."""
+
+    allow_private_addresses = False
+
+    def connect(self) -> None:
+        addresses = _resolved_addresses(
+            self.host, self.port, self.allow_private_addresses,
+        )
+        last_error: OSError | None = None
+        for address in addresses:
+            try:
+                self.sock = socket.create_connection(
+                    (address, self.port), self.timeout, self.source_address,
+                )
+                if self._tunnel_host:
+                    self._tunnel()
+                return
+            except OSError as exc:
+                last_error = exc
+        if last_error is not None:
+            raise last_error
+        raise OSError("图片地址没有可用 IP")
+
+
+class _PinnedHTTPSConnection(_PinnedHTTPConnection, http.client.HTTPSConnection):
+    def connect(self) -> None:
+        super().connect()
+        self.sock = self._context.wrap_socket(
+            self.sock, server_hostname=self._tunnel_host or self.host,
+        )
+
+
+class _PinnedHTTPHandler(urllib.request.HTTPHandler):
+    connection_class = _PinnedHTTPConnection
+
+    def http_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(self.connection_class, req)
+
+
+class _PinnedHTTPSHandler(urllib.request.HTTPSHandler):
+    connection_class = _PinnedHTTPSConnection
+
+    def https_open(self, req: urllib.request.Request) -> Any:
+        return self.do_open(self.connection_class, req, context=self._context)
+
+
+def _build_image_opener(allow_private: bool = False) -> urllib.request.OpenerDirector:
+    class HTTPConnection(_PinnedHTTPConnection):
+        allow_private_addresses = allow_private
+
+    class HTTPSConnection(_PinnedHTTPSConnection):
+        allow_private_addresses = allow_private
+
+    http_handler = _PinnedHTTPHandler()
+    http_handler.connection_class = HTTPConnection
+    https_handler = _PinnedHTTPSHandler()
+    https_handler.connection_class = HTTPSConnection
+    return urllib.request.build_opener(
+        urllib.request.ProxyHandler({}), _HTTPOnlyRedirectHandler,
+        http_handler, https_handler,
+    )
+
+
+_IMAGE_OPENER = _build_image_opener()
+_GENERATION_OPENER = urllib.request.build_opener(_SameOriginRedirectHandler)
 
 
 @dataclass(frozen=True)
@@ -192,18 +320,41 @@ def _build_request(
     return request, "generations"
 
 
-def _decode_images(result: dict) -> list[bytes]:
-    """Pull every image out of a generations/edits response."""
+def _validate_image_bytes(raw: bytes) -> None:
+    if len(raw) > MAX_IMAGE_BYTES:
+        raise _ImageDownloadError("图片响应过大")
+    has_signature = raw.startswith((
+        b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a",
+    )) or (len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP")
+    if not has_signature:
+        raise _ImageDownloadError("图片响应不是支持的图片")
+
+
+def _decode_images(result: dict, timeout: float) -> list[bytes]:
+    """Pull base64 images or download remote image URLs from a response."""
     images: list[bytes] = []
     for item in result.get("data", []):
-        encoded = item.get("b64_json") or ""
-        if not encoded and item.get("url", "").startswith("data:"):
-            encoded = item["url"]
-        if not encoded:
+        url = item.get("url", "")
+        encoded = item.get("b64_json") or (url if url.startswith("data:") else "")
+        if encoded:
+            if encoded.startswith("data:"):
+                encoded = encoded.split(",", 1)[1]
+            raw = base64.b64decode(encoded)
+        elif urllib.parse.urlsplit(url).scheme.lower() in {"http", "https"}:
+            # Signed image URLs need no gateway credentials; never forward the API key.
+            try:
+                with _IMAGE_OPENER.open(url, timeout=timeout) as response:
+                    raw = response.read(MAX_IMAGE_BYTES + 1)
+            except _ImageDownloadError:
+                raise
+            except urllib.error.HTTPError as exc:
+                exc.close()
+                raise _ImageDownloadError("图片下载失败") from None
+            except Exception as exc:
+                raise _ImageDownloadError("图片下载失败") from exc
+        else:
             continue
-        if encoded.startswith("data:"):
-            encoded = encoded.split(",", 1)[1]
-        raw = base64.b64decode(encoded)
+        _validate_image_bytes(raw)
         if raw:
             images.append(raw)
     return images
@@ -262,13 +413,26 @@ def generate_image(
                     base_url, model, prompt, api_key, count,
                     list(references), mask, size, quality, input_fidelity,
                 )
-                with urllib.request.urlopen(request, timeout=timeout) as response:
-                    result = json.loads(response.read().decode("utf-8"))
-                images = _decode_images(result)
+                with _GENERATION_OPENER.open(request, timeout=timeout) as response:
+                    response_body = response.read(MAX_RESPONSE_BYTES + 1)
+                if len(response_body) > MAX_RESPONSE_BYTES:
+                    raise ValueError("生成接口响应过大")
+                result = json.loads(response_body.decode("utf-8"))
+                images = _decode_images(result, timeout)
                 if not images:
                     raise ValueError("API 未返回任何图片")
             except urllib.error.HTTPError as exc:
-                detail = exc.read().decode("utf-8", errors="replace")[:300]
+                try:
+                    try:
+                        error_body = exc.read(MAX_ERROR_BODY_BYTES + 1)
+                        detail = (
+                            "错误响应过大" if len(error_body) > MAX_ERROR_BODY_BYTES
+                            else error_body.decode("utf-8", errors="replace")[:300]
+                        )
+                    except Exception:
+                        detail = "错误响应读取失败"
+                finally:
+                    exc.close()
                 errors.append(
                     f"{base_url} | {model} | {endpoint}: HTTP {exc.code} "
                     f"{redact_secrets(detail, api_key)}"
