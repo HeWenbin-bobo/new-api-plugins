@@ -29,13 +29,14 @@ function crc32(data) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function makeZip(entries) {
+function makeZip(entries, options = {}) {
   const locals = [];
   const centrals = [];
   let offset = 0;
-  for (const { name, data, method = 0, flags = 0, declaredSize } of entries) {
+  for (const { name, localName, data, method = 0, flags = 0, declaredSize } of entries) {
     const raw = Buffer.isBuffer(data) ? data : Buffer.from(data ?? '');
     const nameBuffer = Buffer.from(name);
+    const localNameBuffer = Buffer.from(localName ?? name);
     const compressed = method === 8 ? deflateRawSync(raw) : raw;
     const crc = crc32(raw);
     const size = declaredSize ?? raw.length;
@@ -47,7 +48,7 @@ function makeZip(entries) {
     local.writeUInt32LE(crc, 14);
     local.writeUInt32LE(compressed.length, 18);
     local.writeUInt32LE(size, 22);
-    local.writeUInt16LE(nameBuffer.length, 26);
+    local.writeUInt16LE(localNameBuffer.length, 26);
     const central = Buffer.alloc(46);
     central.writeUInt32LE(0x02014b50, 0);
     central.writeUInt16LE(20, 4);
@@ -59,16 +60,17 @@ function makeZip(entries) {
     central.writeUInt32LE(size, 24);
     central.writeUInt16LE(nameBuffer.length, 28);
     central.writeUInt32LE(offset, 42);
-    locals.push(local, nameBuffer, compressed);
+    locals.push(local, localNameBuffer, compressed);
     centrals.push(central, nameBuffer);
-    offset += local.length + nameBuffer.length + compressed.length;
+    offset += local.length + localNameBuffer.length + compressed.length;
   }
   const directory = Buffer.concat(centrals);
+  const declaredCount = options.declaredCount ?? entries.length;
   const end = Buffer.alloc(22);
   end.writeUInt32LE(0x06054b50, 0);
-  end.writeUInt16LE(entries.length, 8);
-  end.writeUInt16LE(entries.length, 10);
-  end.writeUInt32LE(directory.length, 12);
+  end.writeUInt16LE(declaredCount, 8);
+  end.writeUInt16LE(declaredCount, 10);
+  end.writeUInt32LE(options.declaredDirectorySize ?? directory.length, 12);
   end.writeUInt32LE(offset, 16);
   return Buffer.concat([...locals, directory, end]);
 }
@@ -373,6 +375,129 @@ test('audits staged release ZIPs on an unborn branch', (t) => {
   const result = check(cwd, null, '--all');
   assert.notEqual(result.status, 0, result.stderr);
   assert.match(result.stderr, /private local configuration/);
+});
+
+test('audits the whole central directory instead of trusting the EOCD entry count', (t) => {
+  const cwd = fixture(t);
+  const config = join(cwd, 'local-private.json');
+  writeFileSync(config, `{"api_key":"${fakeSecret}"}`);
+  writeZip(cwd, releaseZips[1], makeZip([
+    { name: 'visible.txt', data: 'harmless\n' },
+    { name: 'hidden.txt', data: `key=${fakeSecret}\n` },
+  ], { declaredCount: 1 }));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  const result = check(cwd, null, '--all', '--local-config', config);
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /ZIP entry count mismatch/);
+});
+
+test('fails closed when the declared central directory size hides trailing records', (t) => {
+  const cwd = fixture(t);
+  const single = makeZip([{ name: 'notes.txt', data: 'safe\n' }]);
+  const singleDirectorySize = single.readUInt32LE(single.length - 22 + 12);
+  writeZip(cwd, releaseZips[1], makeZip([
+    { name: 'visible.txt', data: 'safe\n' },
+    { name: 'notes.txt', data: 'safe\n' },
+  ], { declaredCount: 1, declaredDirectorySize: singleDirectorySize + 46 + 'notes.txt'.length }));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  const result = check(cwd, null, '--all');
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /malformed ZIP central directory|ZIP entry count mismatch/);
+});
+
+test('fails closed when a ZIP local header name differs from its central name', (t) => {
+  const cwd = fixture(t);
+  for (const localName of ['config.json', '../escape.txt', 'notes.txt']) {
+    writeZip(cwd, releaseZips[2], makeZip([{ name: 'notes.txt', localName, data: 'harmless\n' }]));
+    git(cwd, ['add', '-f', releaseZips[2]]);
+    const result = check(cwd, null, '--all');
+    if (localName === 'notes.txt') assert.equal(result.status, 0, result.stderr);
+    else {
+      assert.notEqual(result.status, 0, localName);
+      assert.match(result.stderr, /ZIP local header name mismatch/);
+    }
+  }
+});
+
+test('rejects further nested archive extensions and Windows alias spellings', (t) => {
+  const cwd = fixture(t);
+  for (const name of ['payload.tar.gz', 'payload.gz', 'payload.bz2', 'payload.xz', 'payload.zip.', 'payload.tar.gz ']) {
+    writeZip(cwd, releaseZips[3], makeZip([{ name, data: 'offline archive fixture' }]));
+    git(cwd, ['add', '-f', releaseZips[3]]);
+    const result = check(cwd, null, '--all');
+    assert.notEqual(result.status, 0, name);
+    assert.match(result.stderr, /nested archive|Windows alias/);
+  }
+});
+
+test('rejects Windows trailing-dot, trailing-space, and device-name ZIP entries', (t) => {
+  const cwd = fixture(t);
+  for (const name of ['config.json.', 'config.json ', 'nested/config.json.', 'NUL.txt', 'dir./notes.txt']) {
+    writeZip(cwd, releaseZips[4], makeZip([{ name, data: '{}\n' }]));
+    git(cwd, ['add', '-f', releaseZips[4]]);
+    const result = check(cwd, null, '--all');
+    assert.notEqual(result.status, 0, name);
+  }
+});
+
+test('NUL bytes do not disable credential scans inside a release ZIP', (t) => {
+  const cwd = fixture(t);
+  const binary = Buffer.concat([Buffer.from([0, 1]), Buffer.from(`key=sk-${'a'.repeat(32)}\n`)]);
+  writeZip(cwd, releaseZips[1], makeZip([{ name: 'blob.bin', data: binary, method: 8 }]));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  let result = check(cwd, null, '--all');
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /OpenAI-style key/);
+
+  const config = join(cwd, 'local-private.json');
+  writeFileSync(config, `{"api_key":"${fakeSecret}"}`);
+  const exact = Buffer.concat([Buffer.from([0, 1]), Buffer.from(`key=${fakeSecret}\n`)]);
+  writeZip(cwd, releaseZips[1], makeZip([{ name: 'blob.bin', data: exact, method: 8 }]));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  result = check(cwd, null, '--all', '--local-config', config);
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /local credential value/);
+});
+
+test('NUL bytes do not disable credential scans in ordinary blobs', (t) => {
+  const cwd = fixture(t);
+  writeFileSync(join(cwd, 'nested', 'blob.bin'), Buffer.concat([Buffer.from([0, 1]), Buffer.from(`sk-${'a'.repeat(32)}\n`)]));
+  git(cwd, ['add', 'nested/blob.bin']);
+  const result = check(cwd, null, '--all');
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /OpenAI-style key/);
+});
+
+test('ZIP entries use the ZIP entry budget rather than the ordinary file limit', (t) => {
+  const cwd = fixture(t);
+  writeZip(cwd, releaseZips[1], makeZip([{ name: 'big.txt', data: 'x'.repeat(6 * 1024 * 1024), method: 8 }]));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  assert.equal(check(cwd, null, '--all').status, 0, 'benign 6 MB deflated entry must pass');
+  writeZip(cwd, releaseZips[1], makeZip([{ name: 'big.txt', data: 'x'.repeat(17 * 1024 * 1024), method: 8 }]));
+  git(cwd, ['add', '-f', releaseZips[1]]);
+  const result = check(cwd, null, '--all');
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /ZIP expansion limit/);
+});
+
+test('rejects AES-flagged encrypted ZIP entries even without the legacy bit', (t) => {
+  const cwd = fixture(t);
+  writeZip(cwd, releaseZips[0], makeZip([{ name: 'README.md', data: 'safe\n', flags: 0x2000 }]));
+  git(cwd, ['add', '-f', releaseZips[0]]);
+  const result = check(cwd, null, '--all');
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /encrypted ZIP/);
+});
+
+test('fails closed when a local config is too large to audit', (t) => {
+  const cwd = fixture(t);
+  const config = join(cwd, 'local-private.json');
+  writeFileSync(config, `{"api_key":"${'a'.repeat(1024 * 1024 + 16)}"}`);
+  writeFileSync(join(cwd, 'nested', 'notes.txt'), 'safe\n');
+  git(cwd, ['add', 'nested/notes.txt']);
+  const result = check(cwd, null, '--all', '--local-config', config);
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /too large to audit|Cannot inspect local configuration/);
 });
 
 test('the real pre-push wrapper blocks a dangerous outgoing commit', (t) => {

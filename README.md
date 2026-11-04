@@ -84,7 +84,7 @@ flowchart LR
 ~/.claude/skills/zaiwen-image-generation/
 ```
 
-Jihuarst Image 和 Jihuarst Video 需要 Python 3.9+；分别复制其 `config.example.json` 为本地的 `config.json`，Zaiwen 则复制为 `config.local.json`，再分别填写自己的密钥。**不要提交真实配置文件。** 视频 Skill 使用异步提交、轮询和 MP4 下载，失败回退可能创建多个付费任务；首个默认入口为明文 HTTP，使用限制见 [Jihuarst Video 说明](./jihuarst-video/SKILL.md)。详细运行约束见各技能的 `SKILL.md`。
+Jihuarst Image 和 Jihuarst Video 需要 Python 3.9+；分别复制其 `config.example.json` 为本地的 `config.json`，Zaiwen 则复制为 `config.local.json`，再分别填写自己的密钥。**不要提交真实配置文件。** 视频 Skill 使用异步提交、轮询和 MP4 下载，提交或轮询失败后的回退可能创建多个付费任务；已完成任务下载失败只恢复同一任务，不重新提交。首个默认入口为明文 HTTP，使用限制见 [Jihuarst Video 说明](./jihuarst-video/SKILL.md)。详细运行约束见各技能的 `SKILL.md`。
 
 ## 启动 MCP
 

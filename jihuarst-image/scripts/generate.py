@@ -16,13 +16,16 @@ from __future__ import annotations
 
 import argparse
 import base64
+import binascii
 import http.client
 import ipaddress
 import json
 import logging
 import mimetypes
+import os
 import re
 import socket
+import tempfile
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -43,27 +46,49 @@ EDIT_MODELS = [*GPT_MODELS, "hunyuan-image-alpha-edit"]
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 LOGGER = logging.getLogger("jihuarst-image")
 SECRET_PATTERN = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+\b")
+BEARER_PATTERN = re.compile(r"(?i)\bBearer\s+[A-Za-z0-9._~+/-]{4,}={0,2}")
+# Upstream errors can echo credentials embedded in URLs or request payloads.
+ASSIGNMENT_PATTERN = re.compile(
+    r"(?i)\b(api[_-]?key|token|secret|password|authorization|credential)"
+    r"(\s*[=:]\s*|\s*\"\s*:\s*\")([^\s&,\"'}]{4,})"
+)
 
 # The upstream silently raises any request below this pixel budget to a
 # 1254x1254 default.  Verified against the live gateway: 1024x1024 and
 # 512x512 both came back as 1254x1254, while 1024x1536 / 1536x1024 were kept.
 MIN_HONOURED_PIXELS = 1254 * 1254
 MAX_IMAGE_BYTES = 64 * 1024 * 1024
+MAX_IMAGE_COUNT = 10
+MAX_TOTAL_IMAGE_BYTES = 256 * 1024 * 1024
+# The decoded ceiling is 64 MB, so the base64 text can never exceed ~86 MB.
+MAX_ENCODED_IMAGE_CHARS = 4 * (MAX_IMAGE_BYTES // 3 + 2)
 MAX_RESPONSE_BYTES = 256 * 1024 * 1024
 MAX_ERROR_BODY_BYTES = 64 * 1024
+MAX_REFERENCE_BYTES = 64 * 1024 * 1024
 
 ENDPOINT_GENERATIONS = "/v1/images/generations"
 ENDPOINT_EDITS = "/v1/images/edits"
 
 
 class _ImageDownloadError(RuntimeError):
-    """Image retrieval failed; the caller can try the next URL/model combination."""
+    """Image retrieval failed for one entry of an already-paid response."""
+
+
+class _PaidDeliveryError(RuntimeError):
+    """The generation was paid for, but its artifacts could not be delivered.
+
+    Terminal: falling through to another URL/model would pay for a new generation.
+    """
 
 
 class _HTTPOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
     def _validate_redirect(self, req: urllib.request.Request, newurl: str) -> None:
-        if urllib.parse.urlsplit(newurl).scheme.lower() not in {"http", "https"}:
+        old = urllib.parse.urlsplit(req.full_url)
+        new = urllib.parse.urlsplit(newurl)
+        if new.scheme.lower() not in {"http", "https"}:
             raise _ImageDownloadError("图片重定向仅支持 HTTP(S)")
+        if old.scheme.lower() == "https" and new.scheme.lower() == "http":
+            raise _ImageDownloadError("图片重定向不允许从 HTTPS 降级到 HTTP")
 
     def redirect_request(
         self, req: urllib.request.Request, fp: Any, code: int, msg: str,
@@ -191,7 +216,12 @@ class GenerationResult:
 
 def redact_secrets(text: str, api_key: str) -> str:
     """Remove the configured key and common token-shaped strings from errors."""
-    return SECRET_PATTERN.sub("[REDACTED]", text).replace(api_key, "[REDACTED]")
+    redacted = SECRET_PATTERN.sub("[REDACTED]", text)
+    redacted = BEARER_PATTERN.sub("Bearer [REDACTED]", redacted)
+    redacted = ASSIGNMENT_PATTERN.sub(lambda m: f"{m.group(1)}{m.group(2)}[REDACTED]", redacted)
+    if api_key:
+        redacted = redacted.replace(api_key, "[REDACTED]")
+    return redacted
 
 
 def load_api_key() -> str:
@@ -225,9 +255,16 @@ def _read_reference(path: Path) -> tuple[str, bytes, str]:
     """Return (field_name_source, bytes, mime) for one reference image."""
     if not path.is_file():
         raise ValueError(f"参考图不存在: {path}")
-    data = path.read_bytes()
+    if path.stat().st_size > MAX_REFERENCE_BYTES:
+        raise ValueError(f"参考图超过大小上限: {path}")
+    try:
+        data = path.read_bytes()
+    except OSError as exc:
+        raise ValueError(f"无法读取参考图 {path}: {type(exc).__name__}") from exc
     if not data:
         raise ValueError(f"参考图为空文件: {path}")
+    if len(data) > MAX_REFERENCE_BYTES:
+        raise ValueError(f"参考图超过大小上限: {path}")
     return path.name, data, _detect_mime(path)
 
 
@@ -330,42 +367,115 @@ def _validate_image_bytes(raw: bytes) -> None:
         raise _ImageDownloadError("图片响应不是支持的图片")
 
 
-def _decode_images(result: dict, timeout: float) -> list[bytes]:
-    """Pull base64 images or download remote image URLs from a response."""
+def _decode_base64_image(encoded: str) -> bytes:
+    """Decode one base64 entry, bounding its size before allocating."""
+    if encoded.startswith("data:"):
+        if "," not in encoded:
+            raise _ImageDownloadError("图片 data URL 缺少分隔符")
+        encoded = encoded.split(",", 1)[1]
+    compact = "".join(encoded.split())
+    if len(compact) > MAX_ENCODED_IMAGE_CHARS:
+        # Checked before decoding so an oversized payload cannot expand in memory.
+        raise _ImageDownloadError("图片响应过大")
+    try:
+        return base64.b64decode(compact, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise _ImageDownloadError("图片 base64 内容无效") from exc
+
+
+def _decode_images(
+    result: dict,
+    timeout: float,
+    max_images: int,
+    max_total_bytes: int = MAX_TOTAL_IMAGE_BYTES,
+) -> tuple[list[bytes], list[str]]:
+    """Return ``(images, failures)`` for at most ``max_images`` response entries.
+
+    Failures are collected rather than raised: the caller decides whether the
+    paid response is still usable.  Unusable entries are never silently dropped
+    -- an entry with no image payload is reported too.
+    """
+    if not isinstance(result, dict):
+        raise ValueError("API 响应必须是 JSON 对象")
+    entries = result.get("data") or []
+    if not isinstance(entries, list):
+        raise ValueError("API 响应的 data 必须是数组")
     images: list[bytes] = []
-    for item in result.get("data", []):
-        url = item.get("url", "")
-        encoded = item.get("b64_json") or (url if url.startswith("data:") else "")
-        if encoded:
-            if encoded.startswith("data:"):
-                encoded = encoded.split(",", 1)[1]
-            raw = base64.b64decode(encoded)
-        elif urllib.parse.urlsplit(url).scheme.lower() in {"http", "https"}:
-            # Signed image URLs need no gateway credentials; never forward the API key.
-            try:
-                with _IMAGE_OPENER.open(url, timeout=timeout) as response:
-                    raw = response.read(MAX_IMAGE_BYTES + 1)
-            except _ImageDownloadError:
-                raise
-            except urllib.error.HTTPError as exc:
-                exc.close()
-                raise _ImageDownloadError("图片下载失败") from None
-            except Exception as exc:
-                raise _ImageDownloadError("图片下载失败") from exc
-        else:
-            continue
-        _validate_image_bytes(raw)
-        if raw:
+    failures: list[str] = []
+    total_bytes = 0
+    for index, item in enumerate(entries[:max_images]):
+        try:
+            if not isinstance(item, dict):
+                raise _ImageDownloadError("图片条目格式无效")
+            url = item.get("url", "")
+            encoded = item.get("b64_json") or (url if isinstance(url, str) and url.startswith("data:") else "")
+            if encoded:
+                if not isinstance(encoded, str):
+                    raise _ImageDownloadError("图片 base64 字段必须是字符串")
+                raw = _decode_base64_image(encoded)
+            elif isinstance(url, str) and urllib.parse.urlsplit(url).scheme.lower() in {"http", "https"}:
+                # Signed image URLs need no gateway credentials; never forward the API key.
+                try:
+                    with _IMAGE_OPENER.open(url, timeout=timeout) as response:
+                        raw = response.read(MAX_IMAGE_BYTES + 1)
+                except _ImageDownloadError:
+                    raise
+                except urllib.error.HTTPError as exc:
+                    exc.close()
+                    raise _ImageDownloadError("图片下载失败") from None
+                except Exception as exc:
+                    raise _ImageDownloadError("图片下载失败") from exc
+            else:
+                raise _ImageDownloadError("图片条目缺少可用的 url 或 b64_json")
+            _validate_image_bytes(raw)
+            if not raw:
+                raise _ImageDownloadError("图片内容为空")
+            if total_bytes + len(raw) > max_total_bytes:
+                raise _ImageDownloadError("图片总大小超过上限")
+            total_bytes += len(raw)
             images.append(raw)
-    return images
+        except _ImageDownloadError as exc:
+            failures.append(f"第 {index + 1} 张图片: {exc}")
+    return images, failures
 
 
 def _output_targets(output_path: Path, count: int) -> list[Path]:
-    """Return one path per returned image, adding a numeric suffix when needed."""
+    """Return one path per requested image, adding a numeric suffix when needed."""
     if count <= 1:
         return [output_path]
     stem, suffix = output_path.stem, output_path.suffix
     return [output_path.parent / f"{stem}-{index}{suffix}" for index in range(1, count + 1)]
+
+
+def _write_images_atomically(targets: Sequence[Path], images: Sequence[bytes]) -> list[Path]:
+    """Write each image to a sibling temporary file, then replace its target.
+
+    A failed write never truncates or removes a previously saved image.  When
+    several images are requested, a target is replaced only once its complete
+    content has been flushed to disk.
+    """
+    saved: list[Path] = []
+    for image_bytes, target in zip(images, targets):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        temp_name: str | None = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                dir=target.parent, prefix=target.name + ".", suffix=".tmp", delete=False,
+            ) as temporary:
+                temp_name = temporary.name
+                temporary.write(image_bytes)
+                temporary.flush()
+                os.fsync(temporary.fileno())
+            os.replace(temp_name, target)
+            temp_name = None
+            saved.append(target)
+        finally:
+            if temp_name is not None:
+                try:
+                    os.unlink(temp_name)
+                except FileNotFoundError:
+                    pass
+    return saved
 
 
 def generate_image(
@@ -387,18 +497,16 @@ def generate_image(
         raise ValueError("提示词不能为空")
     if not api_key.strip():
         raise ValueError("API key 不能为空")
-    if count < 1:
-        raise ValueError("生成数量至少为 1")
-    # Local input problems must fail fast: retrying them across every URL/model
-    # combination would only repeat the same error and waste time.
+    if not 1 <= count <= MAX_IMAGE_COUNT:
+        raise ValueError(f"生成数量必须在 1..{MAX_IMAGE_COUNT} 之间")
+    # Local input problems must fail fast, before any paid request: retrying
+    # them across every URL/model would only repeat the same error and cost money.
     for reference in references:
-        if not reference.is_file():
-            raise ValueError(f"参考图不存在: {reference}")
+        _read_reference(reference)
     if mask is not None:
         if len(references) != 1:
             raise ValueError("mask 只能与单张参考图一起使用")
-        if not mask.is_file():
-            raise ValueError(f"遮罩图不存在: {mask}")
+        _read_reference(mask)
 
     errors: list[str] = []
     selected_models = models if models is not None else (EDIT_MODELS if references else MODELS)
@@ -418,9 +526,27 @@ def generate_image(
                 if len(response_body) > MAX_RESPONSE_BYTES:
                     raise ValueError("生成接口响应过大")
                 result = json.loads(response_body.decode("utf-8"))
-                images = _decode_images(result, timeout)
-                if not images:
+                entries = result.get("data") or [] if isinstance(result, dict) else []
+                if not isinstance(entries, list):
+                    raise _PaidDeliveryError(
+                        "本次生图已计费，但图片响应的 data 不是数组；未提交新的生图请求。"
+                    )
+                images, failures = _decode_images(result, timeout, count)
+                if not entries:
+                    # No artifact was produced: nothing was billed for a result,
+                    # so another URL/model combination is still worth trying.
                     raise ValueError("API 未返回任何图片")
+                if len(images) != count:
+                    if not failures:
+                        failures.append(
+                            f"仅返回 {len(entries)} 个图片条目，少于请求的 {count} 张"
+                        )
+                    raise _PaidDeliveryError(
+                        f"本次生图已计费，但图片获取不完整（请求 {count} 张，"
+                        f"成功 {len(images)} 张）；未提交新的生图请求。\n"
+                        + "\n".join(redact_secrets(item, api_key) for item in failures)
+                    )
+                revised = result.get("data", [{}])[0].get("revised_prompt")
             except urllib.error.HTTPError as exc:
                 try:
                     try:
@@ -439,6 +565,8 @@ def generate_image(
                 )
                 LOGGER.warning("失败: %s", errors[-1])
                 continue
+            except _PaidDeliveryError:
+                raise
             except Exception as exc:  # network / malformed response / bad local file
                 errors.append(
                     f"{base_url} | {model}: {type(exc).__name__}: "
@@ -447,12 +575,14 @@ def generate_image(
                 LOGGER.warning("失败: %s", errors[-1])
                 continue
 
-            targets = _output_targets(output_path, len(images))
-            saved: list[Path] = []
-            for image_bytes, target in zip(images, targets):
-                target.write_bytes(image_bytes)
-                saved.append(target)
-            revised = result.get("data", [{}])[0].get("revised_prompt")
+            targets = _output_targets(output_path, count)
+            try:
+                saved = _write_images_atomically(targets, images)
+            except OSError as exc:
+                raise _PaidDeliveryError(
+                    f"本次生图已计费，但写入输出文件失败；未提交新的生图请求。"
+                    f"输出路径: {output_path.parent}\n{type(exc).__name__}"
+                ) from exc
             return GenerationResult(
                 base_url=base_url,
                 model=model,

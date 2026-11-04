@@ -35,6 +35,8 @@ CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
 LOGGER = logging.getLogger("jihuarst-video")
 SECRET_PATTERN = re.compile(r"(?i)\bsk-[A-Za-z0-9_-]+\b")
 MAX_ERROR_SUMMARY_CHARS = 300
+MAX_RESPONSE_BYTES = 8 * 1024 * 1024
+MAX_VIDEO_BYTES = 1024 * 1024 * 1024
 
 PENDING = {"queued", "pending", "submitted", "processing", "in_progress", "running"}
 SUCCESS = {"completed", "succeeded"}
@@ -51,6 +53,14 @@ class GenerationResult:
 
 class VideoDownloadError(RuntimeError):
     """Retryable remote MP4 failure; never wrap local output or programming errors."""
+
+
+class PaidDeliveryError(RuntimeError):
+    """The task completed and was billed, but no artifact could be retrieved.
+
+    This is terminal: retrying another URL/model combination would submit and
+    pay for a brand-new task instead of recovering the one already paid for.
+    """
 
 
 def redact_secrets(text: str, api_key: str) -> str:
@@ -138,6 +148,9 @@ class _CredentialRedirectHandler(urllib.request.HTTPRedirectHandler):
             target = urllib.parse.urljoin(req.full_url, newurl)
             if urllib.parse.urlsplit(target).scheme.lower() not in {"http", "https"}:
                 raise ValueError("重定向仅允许 HTTP(S) 目标")
+            # An HTTPS source must never be downgraded to plaintext HTTP.
+            if _normalized_origin(req.full_url)[0] == "https" and _normalized_origin(target)[0] == "http":
+                raise ValueError("重定向不允许从 HTTPS 降级到 HTTP")
             if req.data is not None and code in {307, 308}:
                 redirected = urllib.request.Request(
                     target, data=req.data, headers=dict(req.header_items()),
@@ -233,7 +246,10 @@ _DOWNLOAD_OPENER = _build_opener()
 
 def _read_json(request: urllib.request.Request, timeout: float) -> dict:
     with _JSON_OPENER.open(request, timeout=timeout) as response:
-        result = json.loads(response.read().decode("utf-8"))
+        body = response.read(MAX_RESPONSE_BYTES + 1)
+    if len(body) > MAX_RESPONSE_BYTES:
+        raise ValueError("API 响应过大")
+    result = json.loads(body.decode("utf-8"))
     if not isinstance(result, dict):
         raise ValueError("API 响应必须是 JSON 对象")
     return result
@@ -314,7 +330,11 @@ def _download_video(
                 raise VideoDownloadError("远程响应不是有效的 MP4 文件")
             with tempfile.NamedTemporaryFile(dir=output_path.parent, delete=False) as temporary:
                 temp_name = temporary.name
+                written = 0
                 temporary.write(first_chunk)
+                written += len(first_chunk)
+                if written > MAX_VIDEO_BYTES:
+                    raise VideoDownloadError("远程视频超过大小上限")
                 while True:
                     try:
                         chunk = response.read(65536)
@@ -324,7 +344,12 @@ def _download_video(
                         ) from exc
                     if not chunk:
                         break
+                    written += len(chunk)
+                    if written > MAX_VIDEO_BYTES:
+                        raise VideoDownloadError("远程视频超过大小上限")
                     temporary.write(chunk)
+                temporary.flush()
+                os.fsync(temporary.fileno())
         except BaseException as exc:
             download_error = exc
             raise
@@ -455,12 +480,16 @@ def generate_video(
                 video_urls = [content_url]
                 if isinstance(completed.get("url"), str) and completed["url"].strip():
                     video_urls.insert(0, completed["url"].strip())
+                delivery_errors: list[str] = []
                 for index, video_url in enumerate(video_urls):
                     try:
                         path = _download_video(
                             video_url, output_path, api_key, base_url, timeout,
                         )
                     except VideoDownloadError as exc:
+                        delivery_errors.append(
+                            f"{type(exc).__name__}: {redact_secrets(str(exc), api_key)}"
+                        )
                         if index == 0 and len(video_urls) > 1:
                             LOGGER.warning(
                                 "返回地址下载失败，尝试同任务 content: %s | %s | %s",
@@ -468,12 +497,17 @@ def generate_video(
                                 type(exc).__name__,
                             )
                             continue
-                        summary = (
-                            f"{base_url} | {model} | {task_id} | "
-                            f"{type(exc).__name__}: {exc}"
-                        )
                     else:
                         return GenerationResult(base_url, model, task_id, path)
+                # The paid task exists and finished; only its delivery failed.
+                # Falling through to the next combination would submit a new task.
+                raise PaidDeliveryError(
+                    f"视频任务已计费，但视频下载失败，未提交新的请求或任务。"
+                    f"任务 ID: {redact_secrets(task_id, api_key)}"
+                    f"（{attempt_target}）\n"
+                    + "\n".join(delivery_errors)
+                    + "\n请使用同一任务 ID 重试下载，或检查网关的 content/artifact 代理。"
+                )
             summary = redact_secrets(summary, api_key)[:MAX_ERROR_SUMMARY_CHARS]
             errors.append(summary)
             LOGGER.warning("失败: %s", summary)

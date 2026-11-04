@@ -5,7 +5,7 @@ import { inflateRawSync } from 'node:zlib';
 
 const ZERO = '0'.repeat(40);
 const LIMIT = 5 * 1024 * 1024;
-const ARCHIVE = /\.(?:zip|7z|rar|tar|tgz)$/i;
+const ARCHIVE = /\.(?:zip|7z|rar|tar|tgz|gz|bz2|xz|zst|lz4|lz|lzma|jar|war|apk|iso|cab|cpio|arj|lzh|ace)$/i;
 const RELEASE_ZIPS = new Set([
   'kling_wb2api_newapi/kling_wb2api_newapi.zip',
   'jihuarst-image/jihuarst-image.zip',
@@ -37,7 +37,7 @@ function git(commandArgs, input) {
   const result = spawnSync('git', commandArgs, {
     input,
     encoding: null,
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: 160 * 1024 * 1024,
     timeout: 30000,
   });
   if (result.error || result.status !== 0) {
@@ -53,7 +53,10 @@ function text(value) {
 function credentialValues(buffer) {
   const values = [];
   const source = text(buffer);
-  if (source.length > 1024 * 1024) return values;
+  if (source.length > 1024 * 1024) {
+    // An uninspectable local config must not silently yield "no secrets".
+    throw new Error('Local configuration is too large to audit');
+  }
   try {
     const pending = [JSON.parse(source)];
     while (pending.length) {
@@ -115,10 +118,23 @@ function zipEnd(data) {
   throw new ZipError('malformed ZIP archive');
 }
 
+// Windows drops trailing dots and spaces from every path segment and aliases
+// reserved device names, so `config.json.` extracts as `config.json` there.
+// Normalize before the private-config and archive-extension checks, and reject
+// such ZIP entry names outright rather than trusting a single spelling.
+function normalizedPath(path) {
+  return path.split('/').map((part) => part.replace(/[. ]+$/g, '')).join('/');
+}
+
 function zipEntryPath(name) {
   if (!name || name.includes('\0') || name.includes('\\')) throw new ZipError('unsafe ZIP entry path');
   if (name.startsWith('/') || /^[a-z]:/i.test(name)) throw new ZipError('unsafe ZIP entry path');
-  if (name.split('/').some((part) => part === '..')) throw new ZipError('unsafe ZIP entry path');
+  const parts = name.split('/');
+  if (parts.some((part) => part === '..')) throw new ZipError('unsafe ZIP entry path');
+  for (const part of parts) {
+    if (normalizedPath(part) !== part) throw new ZipError(`unsafe ZIP entry path (Windows alias): ${name}`);
+    if (/^(?:con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(part)) throw new ZipError(`unsafe ZIP device name: ${name}`);
+  }
   return name;
 }
 
@@ -135,11 +151,15 @@ function inspectZip(path, data, secrets) {
       throw new ZipError('unsupported ZIP64 archive');
     }
     if (count > MAX_ZIP_ENTRIES) throw new ZipError(`too many ZIP entries (limit ${MAX_ZIP_ENTRIES})`);
-    if (directoryOffset + directorySize > end) throw new ZipError('malformed ZIP central directory');
+    // The EOCD count is attacker-controlled: walk the real central directory
+    // instead, so surplus records cannot hide behind a truncated count.
+    const directoryEnd = directoryOffset + directorySize;
+    if (directoryEnd !== end) throw new ZipError('malformed ZIP central directory');
     let cursor = directoryOffset;
     let totalSize = 0;
-    for (let index = 0; index < count; index += 1) {
-      if (cursor + 46 > data.length || data.readUInt32LE(cursor) !== 0x02014b50) throw new ZipError('malformed ZIP central directory');
+    let records = 0;
+    while (cursor < directoryEnd) {
+      if (cursor + 46 > directoryEnd || data.readUInt32LE(cursor) !== 0x02014b50) throw new ZipError('malformed ZIP central directory');
       const flags = data.readUInt16LE(cursor + 8);
       const method = data.readUInt16LE(cursor + 10);
       const checksum = data.readUInt32LE(cursor + 16);
@@ -149,23 +169,31 @@ function inspectZip(path, data, secrets) {
       const extraLength = data.readUInt16LE(cursor + 30);
       const commentLength = data.readUInt16LE(cursor + 32);
       const localOffset = data.readUInt32LE(cursor + 42);
-      if (cursor + 46 + nameLength + extraLength + commentLength > data.length) throw new ZipError('malformed ZIP central directory');
-      const name = zipEntryPath(text(data.subarray(cursor + 46, cursor + 46 + nameLength)));
+      if (cursor + 46 + nameLength + extraLength + commentLength > directoryEnd) throw new ZipError('malformed ZIP central directory');
+      const centralName = data.subarray(cursor + 46, cursor + 46 + nameLength);
+      const name = zipEntryPath(text(centralName));
       cursor += 46 + nameLength + extraLength + commentLength;
-      if (flags & 0x41) throw new ZipError(`encrypted ZIP entry: ${name}`);
+      records += 1;
+      if (records > MAX_ZIP_ENTRIES) throw new ZipError(`too many ZIP entries (limit ${MAX_ZIP_ENTRIES})`);
+      if (flags & 0x2041) throw new ZipError(`encrypted ZIP entry: ${name}`);
       if (method !== 0 && method !== 8) throw new ZipError(`unsupported ZIP compression method: ${name}`);
       if ([compressedSize, size, localOffset].includes(0xffffffff)) throw new ZipError('unsupported ZIP64 archive');
       totalSize += size;
       if (size > MAX_ZIP_ENTRY_BYTES || totalSize > MAX_ZIP_TOTAL_BYTES) throw new ZipError('ZIP expansion limit exceeded');
-      if (ARCHIVE.test(name)) {
+      if (ARCHIVE.test(normalizedPath(name))) {
         findings.add(`${path}!/${name}: nested archive`);
         continue;
       }
       if (name.endsWith('/')) continue;
       if (localOffset + 30 > data.length || data.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError(`malformed ZIP local header: ${name}`);
       if (data.readUInt16LE(localOffset + 8) !== method) throw new ZipError(`malformed ZIP local header: ${name}`);
-      const start = localOffset + 30 + data.readUInt16LE(localOffset + 26) + data.readUInt16LE(localOffset + 28);
+      const localNameLength = data.readUInt16LE(localOffset + 26);
+      const start = localOffset + 30 + localNameLength + data.readUInt16LE(localOffset + 28);
       if (start + compressedSize > data.length) throw new ZipError(`truncated ZIP entry: ${name}`);
+      // Extractors may follow the local header name, so both spellings must agree.
+      if (!data.subarray(localOffset + 30, localOffset + 30 + localNameLength).equals(centralName)) {
+        throw new ZipError(`ZIP local header name mismatch: ${name}`);
+      }
       const compressed = data.subarray(start, start + compressedSize);
       let content;
       try {
@@ -177,6 +205,8 @@ function inspectZip(path, data, secrets) {
       if (crc32(content) !== checksum) throw new ZipError(`ZIP entry checksum mismatch: ${name}`);
       inspect(`${path}!/${name}`, content, secrets);
     }
+    if (cursor !== directoryEnd) throw new ZipError('malformed ZIP central directory');
+    if (records !== count) throw new ZipError(`ZIP entry count mismatch (declared ${count}, found ${records})`);
   } catch (error) {
     findings.add(`${path}: ${error instanceof ZipError ? error.message : 'malformed ZIP archive'}`);
   }
@@ -189,18 +219,21 @@ function inspect(path, data, secrets) {
     else inspectZip(path, data, secrets);
     return;
   }
-  if (data.length > LIMIT) {
-    findings.add(`${path}: file exceeds the 5 MB scan limit`);
+  const isArchiveEntry = path.includes('!/');
+  const limit = isArchiveEntry ? MAX_ZIP_ENTRY_BYTES : LIMIT;
+  if (data.length > limit) {
+    findings.add(`${path}: file exceeds the ${limit / (1024 * 1024)} MB scan limit`);
     return;
   }
-  const lower = path.toLowerCase();
+  const lower = normalizedPath(path).toLowerCase();
   if (/(?:^|\/)(?:config(?:\.local)?\.json|\.env(?:\..+)?)$/.test(lower) && !lower.endsWith('/.env.example') && lower !== '.env.example') {
     findings.add(`${path}: private local configuration`);
   }
-  if (ARCHIVE.test(path)) findings.add(`${path}: generated archive; use a Release asset`);
+  if (ARCHIVE.test(lower)) findings.add(`${path}: generated archive; use a Release asset`);
   if (/(?:^|\/)(?:node_modules|__pycache__|\.idea|\.vscode|\.omc|\.remember)\//.test(lower)) findings.add(`${path}: local dependency or tool state`);
-  if (data.includes(0)) return;
-  const source = text(data);
+  // NUL bytes mark binary content, but they must not disable the credential
+  // scans: a binary blob can carry the same token. Scan a NUL-stripped view.
+  const source = text(data).replace(/\0/g, '');
   if (/(?:^|\/)config\.example\.json$/.test(lower)) {
     try {
       const pending = [JSON.parse(source)];

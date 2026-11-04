@@ -410,7 +410,7 @@ class GenerateTests(unittest.TestCase):
 
     def test_submit_rejects_non_public_redirect_without_connecting(self) -> None:
         request = self.module._build_submit_request(
-            "https://public.example.invalid", "minimax-video-h3", "cat", "test-key", 5, None, None,
+            "http://public.example.invalid", "minimax-video-h3", "cat", "test-key", 5, None, None,
         )
         response = mock.Mock()
         with fake_api([200]) as (target, target_url):
@@ -546,7 +546,7 @@ class GenerateTests(unittest.TestCase):
                         r for r in server.requests if r["method"] == "POST"
                     ]))
 
-    def test_retryable_remote_download_error_uses_next_model(self) -> None:
+    def test_retryable_remote_download_error_does_not_resubmit(self) -> None:
         self.assertTrue(hasattr(self.module, "VideoDownloadError"),
                         "retryable remote download contract is missing")
         with fake_api([200, 200], task_statuses=["queued", "completed"]) as (server, url):
@@ -558,13 +558,13 @@ class GenerateTests(unittest.TestCase):
                     self.output,
                 ],
             ) as download:
-                result = self.module.generate_video(
-                    "cat", self.output, "test-key", [url], EXPECTED_MODELS,
-                    timeout=2, poll_interval=0, max_wait=2,
-                )
-        self.assertEqual("kling-video-v3", result.model)
-        self.assertEqual(3, download.call_count)
-        self.assertEqual(2, len([r for r in server.requests if r["method"] == "POST"]))
+                with self.assertRaises(RuntimeError):
+                    self.module.generate_video(
+                        "cat", self.output, "test-key", [url], EXPECTED_MODELS,
+                        timeout=2, poll_interval=0, max_wait=2,
+                    )
+        self.assertEqual(2, download.call_count)
+        self.assertEqual(1, len([r for r in server.requests if r["method"] == "POST"]))
 
     def test_load_api_key_uses_temporary_config(self) -> None:
         original_path = self.module.CONFIG_PATH
@@ -619,8 +619,18 @@ class GenerateTests(unittest.TestCase):
         connect.assert_not_called()
         self.assertFalse(self.output.exists())
 
-    def test_download_rejects_non_public_redirect_without_connecting(self) -> None:
+    def test_https_redirect_downgrade_is_rejected_and_closed(self) -> None:
         request = self.module.urllib.request.Request("https://public.example.invalid/start")
+        response = mock.Mock()
+        with self.assertRaisesRegex(ValueError, "HTTPS.*HTTP"):
+            self.module._CredentialRedirectHandler().redirect_request(
+                request, response, 307, "Temporary Redirect", {},
+                "http://public.example.invalid/video.mp4",
+            )
+        response.close.assert_called_once_with()
+
+    def test_download_rejects_non_public_redirect_without_connecting(self) -> None:
+        request = self.module.urllib.request.Request("http://public.example.invalid/start")
         response = mock.Mock()
         handler = self.module._CredentialRedirectHandler()
         redirected = handler.redirect_request(
@@ -635,6 +645,27 @@ class GenerateTests(unittest.TestCase):
         connect.assert_not_called()
         response.close.assert_called_once_with()
         self.assertFalse(self.output.exists())
+
+    def test_json_response_limit_rejects_excess_before_decoding(self) -> None:
+        response = mock.MagicMock()
+        response.__enter__.return_value = response
+        response.read.return_value = b"{}"
+        with mock.patch.object(self.module, "MAX_RESPONSE_BYTES", 1), \
+                mock.patch.object(self.module._JSON_OPENER, "open", return_value=response):
+            with self.assertRaisesRegex(ValueError, "响应过大"):
+                self.module._read_json(mock.Mock(), 2)
+        response.read.assert_called_once_with(2)
+        response.__exit__.assert_called_once_with(None, None, None)
+    def test_oversized_video_preserves_existing_output_and_removes_temporary_file(self) -> None:
+        self.output.write_bytes(b"existing-output")
+        with fake_api([200], remote_video=True) as (server, url), \
+                mock.patch.object(self.module, "MAX_VIDEO_BYTES", len(MP4_BYTES) - 1):
+            with self.assertRaisesRegex(self.module.VideoDownloadError, "大小上限"):
+                self.module._download_video(
+                    url + "/video/task-1.mp4", self.output, "test-key", url, 2,
+                )
+        self.assertEqual(b"existing-output", self.output.read_bytes())
+        self.assertEqual([], list(Path(self.tempdir.name).glob("tmp*")))
 
     def test_direct_script_empty_key_exits_without_traceback(self) -> None:
         skill_copy = Path(self.tempdir.name) / "skill"
@@ -659,7 +690,7 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual("Bearer test-key", source.download_authorization)
         self.assertIsNone(target.download_authorization)
 
-    def test_response_close_failure_falls_back_and_preserves_output(self) -> None:
+    def test_response_close_failure_does_not_resubmit_and_preserves_output(self) -> None:
         self.output.write_bytes(b"existing-output")
         original_open = self.module._DOWNLOAD_OPENER.open
 
@@ -687,18 +718,18 @@ class GenerateTests(unittest.TestCase):
 
         with fake_api([200, 200], remote_video=True) as (server, url), \
                 mock.patch.object(self.module._DOWNLOAD_OPENER, "open",
-                                  side_effect=open_with_close_failure), \
-                mock.patch.object(self.module.os, "replace", side_effect=PermissionError("read-only")):
-            with self.assertRaises(PermissionError):
+                                  side_effect=open_with_close_failure):
+            with self.assertRaises(self.module.PaidDeliveryError):
                 self.module.generate_video(
                     "cat", self.output, "test-key", [url], EXPECTED_MODELS,
                     timeout=2, poll_interval=0, max_wait=2,
                 )
         self.assertEqual(b"existing-output", self.output.read_bytes())
-        self.assertEqual(2, len([r for r in server.requests if r["method"] == "POST"]))
+        self.assertEqual(1, len([r for r in server.requests if r["method"] == "POST"]))
+        self.assertEqual(2, close_failures)
         self.assertEqual([], list(Path(self.tempdir.name).glob("tmp*")))
 
-    def test_initial_read_failure_falls_back_and_preserves_output(self) -> None:
+    def test_initial_read_failure_does_not_resubmit_and_preserves_output(self) -> None:
         self.output.write_bytes(b"existing-output")
         original_open = self.module._DOWNLOAD_OPENER.open
 
@@ -727,14 +758,14 @@ class GenerateTests(unittest.TestCase):
         with fake_api([200, 200], remote_video=True) as (server, url), \
                 mock.patch.object(self.module._DOWNLOAD_OPENER, "open",
                                   side_effect=open_with_read_failure):
-            result = self.module.generate_video(
-                "cat", self.output, "test-key", [url], EXPECTED_MODELS,
-                timeout=2, poll_interval=0, max_wait=2,
-            )
-        self.assertEqual("kling-video-v3", result.model)
-        self.assertEqual(MP4_BYTES, self.output.read_bytes())
-        self.assertTrue(responses[0].closed)
-        self.assertEqual(2, len([r for r in server.requests if r["method"] == "POST"]))
+            with self.assertRaises(self.module.PaidDeliveryError):
+                self.module.generate_video(
+                    "cat", self.output, "test-key", [url], EXPECTED_MODELS,
+                    timeout=2, poll_interval=0, max_wait=2,
+                )
+        self.assertEqual(b"existing-output", self.output.read_bytes())
+        self.assertTrue(all(response.closed for response in responses))
+        self.assertEqual(1, len([r for r in server.requests if r["method"] == "POST"]))
         self.assertEqual([], list(Path(self.tempdir.name).glob("tmp*")))
 
     def test_download_rejects_non_http_redirect_without_replacing_output(self) -> None:
@@ -804,6 +835,56 @@ class GenerateTests(unittest.TestCase):
         self.assertNotIn(secret, stdout.getvalue())
         self.assertEqual("[REDACTED]", json.loads(stdout.getvalue())["task_id"])
 
+    def test_completed_task_download_failure_does_not_submit_another_task(self) -> None:
+        with fake_api([200, 200], remote_video=True) as (server, url):
+            server.failed_download_paths = {"/video/task-1.mp4", "/v1/videos/task-1/content"}
+            with self.assertRaises(RuntimeError) as raised:
+                self.module.generate_video(
+                    "cat", self.output, "test-key", [url], EXPECTED_MODELS,
+                    timeout=2, poll_interval=0, max_wait=2,
+                )
+        self.assertEqual(1, server.post_count)
+        message = str(raised.exception)
+        self.assertIn("计费", message)
+        self.assertIn("下载失败", message)
+        self.assertIn("未提交新的请求或任务", message)
+        self.assertIn("task-1", message)
+
+    def test_same_task_content_fallback_downloads_after_failed_returned_url(self) -> None:
+        with fake_api([200], remote_video=True) as (server, url):
+            server.failed_download_paths = {"/video/task-1.mp4"}
+            result = self.module.generate_video(
+                "cat", self.output, "test-key", [url], ["minimax-video-h3"],
+                timeout=2, poll_interval=0, max_wait=2,
+            )
+        self.assertEqual(MP4_BYTES, self.output.read_bytes())
+        self.assertEqual("task-1", result.task_id)
+        self.assertEqual(1, server.post_count)
+        paths = [request["path"] for request in server.requests]
+        self.assertEqual(1, paths.count("/video/task-1.mp4"))
+        self.assertEqual(1, paths.count("/v1/videos/task-1/content"))
+
+    def test_submission_failure_falls_through_to_next_combination(self) -> None:
+        with fake_api([500]) as (first, first_url), \
+                fake_api([200], task_statuses=["queued", "completed"], video_url=None) as (second, second_url):
+            result = self.module.generate_video(
+                "cat", self.output, "test-key", [first_url, second_url], ["minimax-video-h3"],
+                timeout=2, poll_interval=0, max_wait=2,
+            )
+        self.assertEqual(1, first.post_count)
+        self.assertEqual(1, second.post_count)
+        self.assertEqual(second_url, result.base_url)
+        self.assertEqual(MP4_BYTES, self.output.read_bytes())
+
+    def test_terminal_task_state_falls_through_to_next_combination(self) -> None:
+        with fake_api([200, 200], task_statuses=["queued", "failed"]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_video(
+                    "cat", self.output, "test-key", [url], EXPECTED_MODELS,
+                    timeout=2, poll_interval=0, max_wait=2,
+                )
+        self.assertEqual(2, server.post_count)
+
     def test_content_download_failure_includes_task_id(self) -> None:
         with fake_api([200], remote_video=True) as (server, url):
             server.failed_download_paths = {"/video/task-1.mp4", "/v1/videos/task-1/content"}
@@ -815,24 +896,16 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(1, server.post_count)
         self.assertFalse(self.output.exists())
 
-    def test_failed_download_falls_back_to_next_model(self) -> None:
+    def test_failed_download_does_not_fall_back_to_next_model(self) -> None:
         with fake_api([200, 200], remote_video=True) as (server, url):
             server.download_body = b"not-an-mp4"
-            original_download = self.module._download_video
-
-            def fail_first_download(video_url, output_path, api_key, base_url, timeout):
-                if server.post_count == 1:
-                    raise self.module.VideoDownloadError("injected remote failure")
-                server.download_body = MP4_BYTES
-                return original_download(video_url, output_path, api_key, base_url, timeout)
-
-            with mock.patch.object(self.module, "_download_video", side_effect=fail_first_download):
-                result = self.module.generate_video(
+            with self.assertRaises(RuntimeError):
+                self.module.generate_video(
                     "cat", self.output, "test-key", [url], EXPECTED_MODELS,
                     timeout=2, poll_interval=0, max_wait=2,
                 )
-        self.assertEqual("kling-video-v3", result.model)
-        self.assertEqual(MP4_BYTES, self.output.read_bytes())
+        self.assertEqual(1, server.post_count)
+        self.assertFalse(self.output.exists())
 
     def test_failed_download_preserves_preexisting_output(self) -> None:
         self.output.write_bytes(b"existing-output")
