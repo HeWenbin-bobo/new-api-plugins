@@ -10,7 +10,7 @@
 - `scripts/generate.py`：Python 3.9+ 标准库命令行脚本。
 - `config.example.json`：仅包含空 `api_key`；真实 `config.json` 保持 Git 忽略。
 - `tests/test_generate.py`：使用 loopback 模拟网关的离线测试。
-- `jihuarst-video.zip`：由明确允许列表生成的客户端分发包，不提交到 Git。
+- `jihuarst-video.zip`：由明确允许列表生成的客户端分发包，经归档安全审计后作为白名单归档纳入 Git 跟踪。
 
 文生视频发送 JSON；图生视频通过 `-r IMAGE` 读取一张本地图片，转为 data URL 后放入 `input_reference`，仍发送 JSON。两种模式均调用 `POST /v1/videos`，从响应取得任务 ID，再轮询 `GET /v1/videos/{id}`。成功后从任务返回的签名 URL 或 `/content` 端点下载 MP4。
 
