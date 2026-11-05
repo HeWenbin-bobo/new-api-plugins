@@ -133,7 +133,7 @@ cd unified-web-mcp && npm test
 
 ## 参与维护
 
-仓库结构、New API 索引、版本发布及密钥管理规则统一记录在 [AGENTS.md](./AGENTS.md)。提交前请运行相关测试，并确认索引版本与源码哈希一致。
+仓库结构、New API 索引、版本发布及密钥管理规则统一记录在 [AGENTS.md](./AGENTS.md)。跨项目完成状态、最近验证快照和待办见 [项目进度](./docs/PROJECT_STATUS.md)；设计与实施记录分类保存在 `docs/superpowers/specs/` 和 `docs/superpowers/plans/`。提交前请运行相关测试，并确认索引版本与源码哈希一致。
 
 <div align="center">
   <br />
