@@ -9,8 +9,8 @@ import test from 'node:test';
 
 const checker = fileURLToPath(new URL('./check-push.js', import.meta.url));
 const fakeSecret = `fixture-${'x'.repeat(32)}-not-a-real-credential`;
-const releaseZips = [
-  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
+const releaseZips = [  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
+  'video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip',
   'jihuarst-image/jihuarst-image.zip',
   'jihuarst-video/jihuarst-video.zip',
   'zaiwen-image-generation/zaiwen-image-generation.zip',
@@ -231,7 +231,7 @@ test('accepts dummy assignments without weakening exact local credential matchin
   assert.match(result.stderr, /local credential value/);
 });
 
-test('accepts the five audited release ZIPs with stored and deflated entries', (t) => {
+test('accepts the audited release ZIPs with stored and deflated entries', (t) => {
   const cwd = fixture(t);
   for (const path of releaseZips) {
     writeZip(cwd, path, makeZip([

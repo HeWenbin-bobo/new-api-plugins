@@ -1,0 +1,26 @@
+# Changelog
+
+## 1.1.0 — 2026-11-05
+
+- 轮询结果同步提取顶层、`videos[]` 和 `data[]` 中的 COS 地址，避免只有下载阶段才能读取结果。
+- 借鉴 Hub 的真实转发测试，覆盖 Panel 提交端点、鉴权、模型前缀和任务响应。
+- 渠道地址与模型参数在提交前校验，拒绝无效协议及嵌入凭据。
+
+## 1.0.3 — 2026-11-05
+
+- 在插件内强制校验 COS 成品地址：仅允许白名单域名的 HTTPS 地址，不信任宿主对 `allowedHosts` 的执行。
+- 补充离线契约与安全测试，并明确 Kling 前缀和真实任务尚未实测。
+- 更新 Panel 专用响应渲染注释和安装文档。
+
+## 1.0.2 — 2026-11-05
+
+- 适配 Panel 的 `POST /v1/videos/generations` 提交端点。
+- 自动添加 `cn:` 模型前缀并固定 `wait=false`。
+- 从 Panel 的 `data.data[]` / `data.videos[]` 读取 COS 签名视频直链。
+- 限定 COS `allowedHosts`，避免访问任意第三方域名。
+- COS 下载不再携带 Panel API key。
+- 完成 MiniMax H3 真实异步任务与 MP4 下载验证。
+
+## 1.0.0 — 2026-11-05
+
+- 基于 `workbuddy-video@1.1.0` 创建 Panel 独立适配版。

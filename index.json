@@ -23,15 +23,48 @@
           ]
         }
       ],
-      "latest": "1.2.0",
+      "latest": "1.3.0",
       "versions": [
         {
-          "version": "1.2.0",
+          "version": "1.3.0",
           "path": "video_wb2api_hub_newapi/plugin.js",
-          "sha256": "9bfee89c5e9ce129f23c3b45f48efac3b9111855553671ff4ba1601c4a308a32",
+          "sha256": "78730aeb0d7b1b63dfbdca8e4b19ab17009de60b521571065dc121235fba7a55",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:8788"
+        }
+      ]
+    },
+    {
+      "key": "workbuddy-panel-video",
+      "name": "WorkBuddy Panel Video",
+      "icon": "Kling.Color",
+      "description": {
+        "en": "Video generation through a workbuddy2api-panel gateway",
+        "zh": "通过 workbuddy2api-panel 网关生成视频"
+      },
+      "models": [
+        "minimax-video-h3",
+        "kling-video-v3"
+      ],
+      "protocols": [
+        {
+          "name": "openai_video",
+          "models": [
+            "minimax-video-h3",
+            "kling-video-v3"
+          ]
+        }
+      ],
+      "latest": "1.1.0",
+      "versions": [
+        {
+          "version": "1.1.0",
+          "path": "video_wb2api_panel_newapi/plugin.js",
+          "sha256": "9874a9192581e96e2308cf156afbebd44fa45c7032a263239aff2a6cf4cbc960",
+          "minApiVersion": 1,
+          "kind": "task",
+          "baseUrl": "http://127.0.0.1:7863"
         }
       ]
     }

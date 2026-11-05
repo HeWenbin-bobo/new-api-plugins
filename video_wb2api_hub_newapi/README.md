@@ -17,7 +17,7 @@
 2. 在看板中启用**媒体能力/媒体模块**，并确认可用模型目录包含 `minimax-video-h3` 和 `kling-video-v3`。
 3. 在看板「设置」中创建 API Key，并确保该 Key 的模型限制和出口配置允许此视频模型。
 
-插件向上游提交的地址是 `{Base URL}/v1/videos`，因此 new-api 渠道中的 Base URL 不要带 `/v1`。
+插件向上游提交的地址是 `{Base URL}/v1/videos`，因此 new-api 渠道中的 Base URL 不要带 `/v1`。Base URL 必须是绝对 HTTP(S) 地址，不允许嵌入用户名密码、查询参数或片段；下载请求始终与渠道地址同源。
 
 ## 2. 上传插件
 
@@ -25,7 +25,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.2.0`。
+3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.3.0`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 

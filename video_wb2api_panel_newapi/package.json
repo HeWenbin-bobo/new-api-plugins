@@ -1,0 +1,14 @@
+{
+  "name": "workbuddy-panel-video",
+  "version": "1.1.0",
+  "description": "New API task plugin for WorkBuddy2API Panel asynchronous video generation",
+  "type": "module",
+  "main": "plugin.js",
+  "scripts": {
+    "test": "node --test tests/*.test.js",
+    "check": "node --check plugin.js"
+  },
+  "keywords": ["new-api", "workbuddy", "video", "task-plugin", "minimax", "kling"],
+  "license": "UNLICENSED",
+  "private": true
+}

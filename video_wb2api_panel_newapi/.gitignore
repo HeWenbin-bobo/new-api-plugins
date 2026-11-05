@@ -1,0 +1,9 @@
+node_modules/
+.env
+.env.*
+*.log
+*.mp4
+config.json
+*secret*
+*token*
+.DS_Store

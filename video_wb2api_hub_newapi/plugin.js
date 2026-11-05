@@ -12,7 +12,7 @@ export const meta = {
     en: "Video generation through a workbuddy2api-hub gateway",
     zh: "通过 workbuddy2api-hub 网关生成视频",
   },
-  version: "1.2.0",
+  version: "1.3.0",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:8788",
   models: ["minimax-video-h3", "kling-video-v3"],
@@ -113,14 +113,30 @@ function decodeVideoRequest(ctx) {
   return { kind: "submit", model: ctx.model, action, requestBody: normalized };
 }
 
+function gatewayUrl(baseUrl, path) {
+  // The administrator controls this origin; still reject non-HTTP and embedded
+  // credentials so a malformed channel cannot redirect a privileged request.
+  let parsed;
+  try {
+    parsed = new URL(baseUrl);
+  } catch {
+    throw new Error("hub base url must be an absolute HTTP(S) URL");
+  }
+  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.username || parsed.password || parsed.search || parsed.hash) {
+    throw new Error("hub base url must be an absolute HTTP(S) URL without credentials");
+  }
+  return parsed.href.replace(/\/+$/, "") + path;
+}
+
 function contentUrl(ctx) {
   // Always reconstruct the content URL from the upstream task id instead of
   // reusing the signed url: WorkBuddy tokens expire (SIGN_TTL_SECONDS=3600) and
   // are invalidated on hub restart. The Authorization header lets the hub's
   // API-key fallback authorize downloads of expired links it still owns.
   if (!text(ctx.upstreamTaskId)) throw new Error("upstream task id is empty");
-  return ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos/" +
-    encodeURIComponent(ctx.upstreamTaskId) + "/content";
+  return gatewayUrl(ctx.baseUrl, "/v1/videos/" +
+    encodeURIComponent(ctx.upstreamTaskId) + "/content");
 }
 
 /** @param {object} ctx new-api DriverContext. @returns {object} request descriptor. */
@@ -128,7 +144,7 @@ export function buildSubmitRequest(ctx) {
   const requestBody = object(ctx.requestBody);
   if (!requestBody || !text(requestBody.prompt)) throw new Error("prompt is required");
   return {
-    url: ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos",
+    url: gatewayUrl(ctx.baseUrl, "/v1/videos"),
     method: "POST",
     headers: {
       Authorization: "Bearer " + ctx.apiKey,
@@ -150,7 +166,7 @@ export function parseSubmitResponse(ctx, resp) {
 /** @param {object} ctx new-api TaskQueryContext. @returns {object} request descriptor. */
 export function buildQueryRequest(ctx) {
   return {
-    url: ctx.baseUrl.replace(/\/+$/, "") + "/v1/videos/" + encodeURIComponent(ctx.taskId),
+    url: gatewayUrl(ctx.baseUrl, "/v1/videos/" + encodeURIComponent(ctx.taskId)),
     method: "GET",
     headers: { Authorization: "Bearer " + ctx.apiKey },
   };

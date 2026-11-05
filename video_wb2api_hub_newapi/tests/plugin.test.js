@@ -28,7 +28,7 @@ test('manifest declares the OpenAI video protocol without a channel override', (
   assert.equal(meta.apiVersion, 1);
   assert.equal(meta.key, 'workbuddy-video-hub');
   assert.equal(meta.name, 'WorkBuddy Video Hub');
-  assert.equal(meta.version, '1.2.0');
+  assert.equal(meta.version, '1.3.0');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:8788');
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
   assert.equal(meta.fetchMode, 'per_task');
@@ -95,6 +95,14 @@ test('forwards minimax-video-h3 to the upstream gateway', async (t) => {
   });
   assert.equal(response.status, 200);
   assert.equal(upstreamBody.model, 'minimax-video-h3');
+});
+
+test('rejects malformed channel base URLs before sending a privileged request', () => {
+  for (const baseUrl of ['not-a-url', 'file:///tmp/hub', 'https://user:pass@hub.invalid', 'http://hub.invalid?x=1']) {
+    assert.throws(() => buildSubmitRequest({ ...driverContext({ prompt: 'A cat' }), baseUrl }), /base url/);
+    assert.throws(() => buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }), /base url/);
+    assert.throws(() => buildContentRequest({ artifactKey: 'video', baseUrl, apiKey: 'test-key', upstreamTaskId: 'task' }), /base url/);
+  }
 });
 
 test('accepts a JSON image URL as image-to-video', () => {

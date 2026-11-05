@@ -9,7 +9,7 @@
     <img src="https://img.shields.io/badge/MCP-Universal_Gateway-2563EB?style=flat-square&labelColor=111827" alt="MCP Universal Gateway" />
     <img src="https://img.shields.io/badge/Plugin_API-v1-10B981?style=flat-square&labelColor=111827" alt="Plugin API v1" />
   </p>
-  <p>视频生成 × 图像创作 × 统一检索。一个仓库，五个独立工具，面向下一代 AI 工作流。</p>
+  <p>视频生成 × 图像创作 × 统一检索。一个仓库，六个独立工具，面向下一代 AI 工作流。</p>
 </div>
 
 ---
@@ -19,6 +19,7 @@
 | 模块 | 类型 | 能力 | 入口 |
 |:---|:---|:---|:---|
 | **WorkBuddy Video Hub** | New API Task Plugin | 仅将 OpenAI Video 请求转发至 **wb2api Hub**（不兼容 Panel），支持文生视频、图生视频、任务轮询与内容代理 | [使用文档](./video_wb2api_hub_newapi/README.md) |
+| **WorkBuddy Panel Video** | New API Task Plugin | 仅将 OpenAI Video 请求转发至 **wb2api Panel**（不兼容 Hub），支持 COS 成品地址白名单及密钥隔离 | [使用文档](./video_wb2api_panel_newapi/README.md) |
 | **Jihuarst Image** | Agent Skill | 文生图、参考图改图、多图融合、局部重绘；多入口与多模型自动回退 | [技能说明](./jihuarst-image/SKILL.md) |
 | **Jihuarst Video** | Agent Skill | 文生视频、单张参考图生视频、异步任务轮询、MP4 下载与双模型回退 | [技能说明](./jihuarst-video/SKILL.md) |
 | **Zaiwen Image Generation** | Agent Skill | 通过在问 OpenAI 兼容 Images API 生成及编辑图像 | [技能说明](./zaiwen-image-generation/SKILL.md) |
@@ -31,12 +32,13 @@
 | 项目 | 直接下载 |
 |:---|:---|
 | WorkBuddy Video Hub | [video_wb2api_hub_newapi.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip) |
+| WorkBuddy Panel Video | [video_wb2api_panel_newapi.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip) |
 | Jihuarst Image | [jihuarst-image.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-image/jihuarst-image.zip) |
 | Jihuarst Video | [jihuarst-video.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-video/jihuarst-video.zip) |
 | Zaiwen Image Generation | [zaiwen-image-generation.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/zaiwen-image-generation/zaiwen-image-generation.zip) |
 | Unified Web MCP 0.1.0 | [unified-web-mcp-0.1.0.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip) |
 
-解压后按各项目文档安装，并从示例配置创建自己的本地配置。ZIP 分发不改变 New API 插件市场边界：市场仍只通过 `index.json` 安装 WorkBuddy Video Hub 插件。
+解压后按各项目文档安装，并从示例配置创建自己的本地配置。ZIP 分发不改变 New API 插件市场边界：市场仍只通过 `index.json` 安装这两个插件。
 
 ## 架构全景
 
@@ -54,7 +56,7 @@ flowchart LR
     P -. "index.json 显式发布" .-> G[GitHub Raw Source]
 ```
 
-> **边界清晰：** `video_wb2api_hub_newapi` 通过 New API 插件市场安装；三个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
+> **边界清晰：** `video_wb2api_hub_newapi` 与 `video_wb2api_panel_newapi` 通过 New API 插件市场安装，分别只适配 Hub 和 Panel；三个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
 
 ## 安装 New API 插件
 
@@ -72,7 +74,9 @@ flowchart LR
 
 > 添加的是上方 **Raw `index.json` 地址**，不是 GitHub 仓库主页。插件位于子目录不影响安装；索引中的 `versions[].path` 会精确定位源码，并通过 SHA-256 固定当前版本。
 
-渠道及接口的完整配置见 [WorkBuddy Video Hub 文档](./video_wb2api_hub_newapi/README.md)。
+5. 若使用 wb2api Panel，改为安装 **WorkBuddy Panel Video**，key 为 `workbuddy-panel-video`，默认端口为 `7863`。不要混用 Hub 与 Panel 插件；Panel 的 COS 白名单及实测限制见其文档。
+
+渠道及接口的完整配置见 [WorkBuddy Video Hub 文档](./video_wb2api_hub_newapi/README.md) 和 [WorkBuddy Panel Video 文档](./video_wb2api_panel_newapi/README.md)。
 
 ## 安装 Skill
 
@@ -109,6 +113,7 @@ claude mcp add --transport stdio unified-web -- node "/absolute/path/to/unified-
 ```bash
 # New API 插件
 cd video_wb2api_hub_newapi && npm test
+cd ../video_wb2api_panel_newapi && npm test
 
 # Jihuarst Image Skill
 cd jihuarst-image && python -m unittest discover -s tests -v

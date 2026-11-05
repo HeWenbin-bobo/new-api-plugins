@@ -2,15 +2,16 @@
 
 ## Purpose
 
-This is one public repository containing five independently distributed tools:
+This is one public repository containing six independently distributed tools:
 
 - `video_wb2api_hub_newapi/`: a New API Task Plugin for **wb2api Hub only**, distributed through the root `index.json`. It is not compatible with wb2api Panel.
+- `video_wb2api_panel_newapi/`: a New API Task Plugin for **wb2api Panel only**, distributed through the root `index.json`. It is not compatible with wb2api Hub.
 - `jihuarst-image/`: an Agent Skill, installed into a client's skills directory.
 - `jihuarst-video/`: an Agent Skill, installed into a client's skills directory.
 - `zaiwen-image-generation/`: an Agent Skill, installed into a client's skills directory.
 - `unified-web-mcp/`: an MCP server, configured in an MCP client.
 
-Only the Task Plugin belongs in the New API marketplace. Never add Skills or MCP servers to `index.json`.
+Only the Task Plugins belong in the New API marketplace. Never add Skills or MCP servers to `index.json`.
 
 ## Project map and progress
 
@@ -18,28 +19,29 @@ Only the Task Plugin belongs in the New API marketplace. Never add Skills or MCP
 - `docs/PROJECT_STATUS.md` is the cross-project handoff and verification snapshot. Update it after a meaningful completed milestone or published release; keep durable maintenance rules in this file rather than mixing them into the status history.
 - Root files have fixed roles: `README.md` is the user/install guide, `index.json` is the Task Plugin marketplace index, `.githooks/` contains publication guards, and `.gitattributes` preserves release-source normalization.
 - Each product directory owns its source, tests, public documentation, and exact allowlisted client ZIP. Keep real local configuration and generated verification material outside Git; `.omc/` is ignored session state, not an authoritative project document.
-- Do not reorganize the five product trees or create parallel source/archive locations for cosmetic cleanup. Use focused documentation and path updates when the public organization changes.
+- Do not reorganize the six product trees or create parallel source/archive locations for cosmetic cleanup. Use focused documentation and path updates when the public organization changes.
 
 ## Repository and installation rules
 
-- Keep the current five top-level project directories. Do not move `video_wb2api_hub_newapi/plugin.js` to the repository root.
+- Keep the current six top-level project directories. Do not move plugin sources to the repository root.
 - New API does **not** recursively scan GitHub repositories. The root `index.json` is the marketplace entry point and must list every installable Task Plugin explicitly.
 - Add a source using the raw index URL, not the repository homepage:
 
   `https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/index.json`
 
-- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; the current path is `video_wb2api_hub_newapi/plugin.js`.
+- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; current paths are `video_wb2api_hub_newapi/plugin.js` and `video_wb2api_panel_newapi/plugin.js`.
 - Preserve the New API-selected model in upstream requests (`ctx.upstreamModel || ctx.model`). Adding a model requires synchronized manifest, protocol, index, documentation, and forwarding-test updates; do not silently substitute another model.
+- For wb2api Panel, enforce the signed-result COS hostname allowlist in `contentUrl()` as well as declaring `meta.allowedHosts`; only allow HTTPS and never forward the Panel API key to COS. The current host is a deployment-specific allowlist, not a claim that all Panel deployments use the same COS bucket. `cn:` prefixing is applied uniformly; Kling's real Panel task remains unverified.
 - New API requires Task Plugin API v1 support. Plugin installation and channel configuration are administrator trust decisions; review source before activation.
 - Installing the New API plugin does not install the Skills or MCP server. Follow each project's own README or SKILL.md for those.
 
 ## Plugin release rules
 
-When releasing `workbuddy-video-hub`:
+When releasing either `workbuddy-video-hub` or `workbuddy-panel-video`:
 
 1. Run the plugin's offline tests.
-2. Increment `meta.version` in `video_wb2api_hub_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
-3. Replace `plugins[0].versions` in `index.json` with a single entry for the new release, removing superseded versions. Never reuse an existing version number for different source.
+2. Increment `meta.version` in the owning plugin's `plugin.js` and its `package.json` version using semantic versioning.
+3. Replace that plugin's `versions` array in `index.json` with a single entry for the new release, removing superseded versions. Never reuse an existing version number for different source.
 4. Set `latest` to the new version and update `sha256` to the lowercase SHA-256 hash of the exact LF-normalized `plugin.js` bytes. `.gitattributes` preserves this format across Windows checkouts.
 5. Keep `key`, `models`, `protocols`, `minApiVersion`, and `kind` consistent with the plugin manifest and API contract.
 6. Validate that the raw index and source URLs return HTTP 200 after pushing. Do not claim marketplace installation was tested unless it was exercised in New API itself.
@@ -54,7 +56,7 @@ The marketplace intentionally exposes only the latest release through the single
 - Suppress credential values in audit output. Classify obvious test fixtures separately, and do not claim absolute absence of unknown historical secrets.
 - Do not stringify upstream exceptions or response bodies into logs without sanitization; they may echo credentials, authorization headers, request payloads, or large media inputs. Reuse each project's existing redaction path and cover new error paths with an offline test.
 - Keep `node_modules/`, Python caches, logs, `.idea/`, `.remember/`, and other local state out of Git using the root `.gitignore`.
-- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents other than its allowlisted client ZIP, and all non-allowlisted `*.zip`, `*.7z`, `*.rar`, `*.tar`, and `*.tgz` archives, out of Git. Track only the five client ZIPs listed below for direct download.
+- Keep generated `unified-web-mcp/unified-web-mcp-package/` contents other than its allowlisted client ZIP, and all non-allowlisted `*.zip`, `*.7z`, `*.rar`, `*.tar`, and `*.tgz` archives, out of Git. Track only the six client ZIPs listed below for direct download.
 - The Skills' local configurations are machine-specific and must not be replaced by real credentials in examples.
 - Never include `config.json`, `config.local.json`, `.env*`, real credentials, caches, local state, or nested archives in distributable ZIPs. Include only example configurations with empty credentials; after packaging, inspect every entry and scan all archived bytes for exact non-empty credential values from local configs without printing those values.
 
@@ -63,7 +65,7 @@ The marketplace intentionally exposes only the latest release through the single
 - Commit, tag, push, or rewrite history only when the user explicitly requests it. Force-pushing, rebasing published work, and hard resets require specific authorization.
 - Use Conventional Commit subjects (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`) and describe the user-visible change. For nontrivial commits, add a concise body covering the reason, important behavior changes, verification performed, and relevant limitations; a subject alone is not a substitute for that context. Keep each commit focused; separate source changes from regenerated artifacts.
 - Before committing, inspect `git status`, the complete staged file list, `git diff --cached --check`, and the staged sensitive-data audit. Never rely on ignore rules alone; ignored files can still be force-added, and deleting a leaked file in a later commit does not remove it from history.
-- The checked-in `.githooks/pre-push` wrapper must remain the final local defense. After cloning or changing machines, run `git config core.hooksPath .githooks`; verify with `git config --get core.hooksPath`. The hook requires Node.js, scans every outgoing commit (including staged content on an unborn branch), compares exact non-empty values from ignored local configs, blocks private config paths and non-allowlisted archives, and never prints credential values. The five allowlisted ZIPs are parsed offline with entry, path, nested-archive, and expansion limits; their contents undergo the same private-path and exact-credential checks, and malformed or unsupported ZIPs fail closed.
+- The checked-in `.githooks/pre-push` wrapper must remain the final local defense. After cloning or changing machines, run `git config core.hooksPath .githooks`; verify with `git config --get core.hooksPath`. The hook requires Node.js, scans every outgoing commit (including staged content on an unborn branch), compares exact non-empty values from ignored local configs, blocks private config paths and non-allowlisted archives, and never prints credential values. The six allowlisted ZIPs are parsed offline with entry, path, nested-archive, and expansion limits; their contents undergo the same private-path and exact-credential checks, and malformed or unsupported ZIPs fail closed.
 - Test the guard with `node --test .githooks/check-push.test.js`. Keep it offline and fail closed. Do not use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed; fix the source or remove the content from every outgoing commit. This heuristic guard cannot prove the absence of unknown secrets.
 - Treat `--all` history findings and outgoing-push findings separately. The current guard also applies current archive-path policy to historical paths, so a formerly allowlisted but now removed release ZIP can block `--all`; record the exact path and reason. Do not mistake that known limitation for an outgoing-push failure, bypass it, or rewrite published history without explicit authorization. A normal pre-push pass does not prove all historical blobs are safe.
 - A passing local hook is necessary but not sufficient. Before pushing, verify the remote and branch and inspect `git diff --name-only origin/main...HEAD`; after pushing, compare the GitHub tree with the local commit. GitHub push protection, when available and enabled, is an additional service-side layer rather than a replacement for this check.
@@ -91,14 +93,16 @@ The marketplace intentionally exposes only the latest release through the single
 - When adding or changing cache or resume behavior, bind entries to the source bytes and behavior-affecting configuration, reject stale or mismatched results, and write replacement state atomically so failure preserves the last valid result. Test both first-time creation and rejection of an outdated result.
 - After every upgrade to a distributable project, regenerate its client ZIP without a separate reminder; packaging is part of the upgrade, not an optional follow-up:
   - `video_wb2api_hub_newapi/` → `video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip`
+  - `video_wb2api_panel_newapi/` → `video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip`
   - `jihuarst-image/` → `jihuarst-image/jihuarst-image.zip`
   - `jihuarst-video/` → `jihuarst-video/jihuarst-video.zip`
   - `zaiwen-image-generation/` → `zaiwen-image-generation/zaiwen-image-generation.zip`
   - `unified-web-mcp/` → `unified-web-mcp/unified-web-mcp-package/unified-web-mcp-<version>.zip`
-  Track only these five exact ZIP paths in Git; all other archives remain blocked. Use an explicit file allowlist, verify a clean extraction passes the project's offline tests, compare archived files byte for byte with the current source, and run the archive-content credential and safety audit before staging.
+  Track only these six exact ZIP paths in Git; all other archives remain blocked. Use an explicit file allowlist, verify a clean extraction passes the project's offline tests, compare archived files byte for byte with the current source, and run the archive-content credential and safety audit before staging.
 - Run tests from each project's own directory:
   - Repository push guard: `node --test .githooks/check-push.test.js` (run from the repository root)
   - `video_wb2api_hub_newapi/`: `npm test`
+  - `video_wb2api_panel_newapi/`: `npm test`
   - `jihuarst-image/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `jihuarst-video/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `unified-web-mcp/`: `npm test` (Node.js 24+; use `npm ci` in a clean checkout)
