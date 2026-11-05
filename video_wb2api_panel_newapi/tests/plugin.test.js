@@ -29,7 +29,7 @@ test('manifest declares Panel identity, models, protocol, and COS hosts', () => 
   assert.equal(meta.apiVersion, 1);
   assert.equal(meta.key, 'workbuddy-panel-video');
   assert.equal(meta.name, 'WorkBuddy Panel Video');
-  assert.equal(meta.version, '1.1.0');
+  assert.equal(meta.version, '1.1.1');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:7863');
   assert.deepEqual(meta.allowedHosts, [COS_HOST]);
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
@@ -91,6 +91,15 @@ test('preserves an existing cn prefix and applies it to Kling as declared', () =
   assert.equal(bare.body.model, 'cn:kling-video-v3');
 });
 
+test('uses the redirected upstream model exactly once and falls back without a redirect', () => {
+  const context = driverContext({ prompt: 'A bird', model: 'minimax-video-h3', seconds: 5 });
+  const redirected = buildSubmitRequest({ ...context, upstreamModel: 'kling-video-v3' });
+  assert.equal(redirected.body.model, 'cn:kling-video-v3');
+  assert.equal(extractUsage({ ...context, requestBody: redirected.body }).seconds, 5);
+  assert.equal(buildSubmitRequest({ ...context, upstreamModel: 'cn:kling-video-v3' }).body.model, 'cn:kling-video-v3');
+  assert.equal(buildSubmitRequest({ ...context, upstreamModel: '' }).body.model, 'cn:minimax-video-h3');
+});
+
 test('converts multipart input and rejects malformed input', () => {
   const decoded = protocols.openai_video.decodeRequest({
     body: {
@@ -146,6 +155,18 @@ test('maps task statuses and extracts nested COS result URLs', () => {
     status: 'FAILURE', reason: 'denied',
   });
   assert.equal(parseTaskResult({}, { status: 'mystery' }).status, 'UNKNOWN');
+});
+
+test('redacts credentials and signed URLs from bounded failure reasons', () => {
+  const result = parseTaskResult({}, {
+    status: 'failed',
+    error: { message: 'request https://example.com/video?token=fixture-secret failed\nAuthorization: Bearer fixture-secret ' + 'x'.repeat(400) },
+  });
+  assert.equal(result.status, 'FAILURE');
+  assert.ok(result.reason.length <= 300);
+  assert.ok(!result.reason.includes('fixture-secret'));
+  assert.ok(result.reason.includes('[URL]'));
+  assert.ok(result.reason.includes('[REDACTED]'));
 });
 
 test('extracts COS URLs from top-level, videos, and data result shapes', () => {

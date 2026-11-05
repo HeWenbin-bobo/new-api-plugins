@@ -25,7 +25,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.3.0`。
+3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.3.1`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 
@@ -119,6 +119,7 @@ new-api 通过 `GET /v1/videos/{id}/content` 代理下载。插件按上游任�
 - 支持 WorkBuddy 已有的 `size`、`resolution`、`last_image`、`reference_images` 等 JSON 字段，具体可用范围由 WorkBuddy 模型目录决定。
 - `queued` / `pending` → 排队；`submitted` / `processing` / `in_progress` / `running` → 处理中；`completed` / `succeeded` → 成功；失败、拒绝、取消及丢失 → 失败。
 - 签名 URL 过期、WorkBuddy 重启导致任务数据不可用、媒体模块关闭或 Key 权限不足，都可能使轮询/下载失败，请先检查 WorkBuddy 看板与日志。
+- 提交时保留 New API 最终选择的上游模型；任务失败原因仅保留最多 300 字符的简短诊断，HTTP(S) URL 与明显的凭据字段会被替换。
 
 ## 离线测试
 

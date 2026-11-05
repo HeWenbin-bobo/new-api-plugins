@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-- 当前分支：`main`；已发布基线：`726dfec refactor: distinguish the wb2api Hub video plugin`。
+- 当前分支：`main`；已发布基线：`503da35 feat: add Panel video plugin and harden gateway requests`。该提交已推送至 `origin/main`，Hub 1.3.0、Panel 1.1.1 及两个 ZIP 的 Raw URL 均返回 HTTP 200。
 - `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
 - `726dfec` 将视频插件重命名为 Hub 专用：目录 `video_wb2api_hub_newapi/`、key `workbuddy-video-hub`、显示名 `WorkBuddy Video Hub`、版本 1.2.0；同步 `index.json`、文档、ZIP 与发布保护白名单，共 14 个文件。
 - `3a24780` 与 `726dfec` 均已推送至 `origin/main`。`726dfec` 推送后远端文件树与本地提交一致；新 `index.json`、`video_wb2api_hub_newapi/plugin.js`、`video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip` 的 GitHub Raw URL 均返回 HTTP 200（分别为 961、8806、9187 字节），旧目录 `video_wb2api_newapi/` 不再存在于当前版本。
@@ -15,8 +15,8 @@
 
 | 项目 | 当前状态 | 最近的验证范围 |
 |---|---|---|
-| `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.3.0，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；提交、查询和下载前校验渠道 HTTP(S) 地址 | 源码与干净解压 ZIP 各 15/15 离线测试通过 |
-| `video_wb2api_panel_newapi/` | WorkBuddy Panel Video 1.1.0，key 为 `workbuddy-panel-video`；仅用于 wb2api Panel；强制 COS HTTPS 白名单且不向 COS 转发密钥 | 源码与干净解压 ZIP 各 13/13 离线测试通过；Kling 真实 Panel 任务未实测 |
+| `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.3.1，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；校验渠道地址并脱敏失败原因 | 源码与干净解压 ZIP 各 17/17 离线测试通过 |
+| `video_wb2api_panel_newapi/` | WorkBuddy Panel Video 1.1.1，key 为 `workbuddy-panel-video`；仅用于 wb2api Panel；强制 COS HTTPS 白名单、不向 COS 转发密钥并脱敏失败原因 | 源码与干净解压 ZIP 各 15/15 离线测试通过；Kling 真实 Panel 任务未实测 |
 | `jihuarst-image/` | 完整保存全部请求图片后才成功；参数表区分请求字段、客户端行为和后处理 | 更新后 ZIP 干净解压 54/54 离线测试通过 |
 | `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改脚本 | 更新后 ZIP 干净解压 64/64 离线测试通过；2026-11-05 在 New API 更新插件后，通过固定 HTTPS 入口分别完成两个模型的付费端到端实测 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；五 ZIP 统一安全审计已覆盖其归档 |
@@ -43,14 +43,11 @@
 - 验证：插件源码 14/14、干净解压 ZIP 14/14、发布保护 38/38 离线测试通过；`node --check plugin.js`、`git diff --check`、索引 JSON/版本/哈希一致性检查通过；推送前 `check-push.js` 扫描 58 个 blob 通过。New API 市场实机安装未验证。
 - SSRF 审查结论（2026-11-05，后台安全审查 MEDIUM）：插件只向渠道管理员配置的 `ctx.baseUrl` 发请求，`input_reference`/`image`/`reference_images` 按 hub 原生 `/v1/videos` 契约透传，实际抓取这些 URL 的是 wb2api-hub，插件未新增攻击面。若需加固，应在 hub 侧对图片 URL 做 http/https、DNS 解析与私网/环回/链路本地地址拒绝、逐跳重定向重校验（如 `validateRemoteImageUrl()`），而非在插件层实现。
 
-## 当前工作区：Panel 插件接入与双向升级
+## 当前工作区：错误脱敏与模型契约验证
 
-- 新增 `video_wb2api_panel_newapi/`，已升级为 1.1.0。Panel 使用 `POST /v1/videos/generations`、统一 `cn:` 模型前缀及 `wait=false`；COS 下载不携带 Panel 密钥。
-- `contentUrl()` 在代码内强制仅允许 `CONTENT_HOSTS` 中的 HTTPS 地址，不依赖宿主执行 `allowedHosts`；修复了审查发现的任意成品 URL 下载风险。
-- Panel 借鉴 Hub 增加真实 loopback 转发测试，轮询阶段同步提取顶层、`videos[]`、`data[]` 的 COS 地址，并拒绝空模型。
-- Hub 升级为 1.3.0，借鉴 Panel 的显式地址校验思路，在提交、查询和下载前拒绝非 HTTP(S)、嵌入凭据、查询参数或片段的渠道地址；下载仍从同源渠道地址和上游任务 ID 重建，不引入 Panel COS 协议。
-- 同步两个插件的 `index.json` 条目、根 README、六个项目维护规则、ZIP 白名单和项目文档。本改动尚未提交或推送。
-- 验证：Hub 源码及干净解压 ZIP 各 15/15，Panel 源码及干净解压 ZIP 各 13/13 离线测试通过；语法、索引 JSON/版本/两个插件哈希、ZIP 条目与源码一致性、发布保护回归通过。未进行真实付费调用或 New API 市场实机安装。
+- Hub 升级为 1.3.1，Panel 升级为 1.1.1。两版任务失败原因统一限制为 300 字符，替换 HTTP(S) URL、明显凭据字段及控制字符，保留简短诊断。
+- 新增模型重定向、无重定向回退和用量一致性测试。现有 `ctx.upstreamModel || ctx.model` 行为正确，未修改模型转发逻辑，也未合并 Hub/Panel 协议。
+- 验证：Hub 源码及干净解压 ZIP 各 17/17，Panel 源码及干净解压 ZIP 各 15/15 离线测试通过；语法、索引 JSON/版本/哈希、ZIP 条目与源码一致性、发布保护回归通过。本改动尚未提交或推送；未进行真实付费调用或 New API 市场实机安装。
 
 ## 已知边界与待办
 

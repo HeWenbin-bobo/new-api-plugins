@@ -28,7 +28,7 @@ test('manifest declares the OpenAI video protocol without a channel override', (
   assert.equal(meta.apiVersion, 1);
   assert.equal(meta.key, 'workbuddy-video-hub');
   assert.equal(meta.name, 'WorkBuddy Video Hub');
-  assert.equal(meta.version, '1.3.0');
+  assert.equal(meta.version, '1.3.1');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:8788');
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
   assert.equal(meta.fetchMode, 'per_task');
@@ -97,6 +97,14 @@ test('forwards minimax-video-h3 to the upstream gateway', async (t) => {
   assert.equal(upstreamBody.model, 'minimax-video-h3');
 });
 
+test('uses the redirected upstream model and falls back without a redirect', () => {
+  const context = driverContext({ prompt: 'A cat', model: 'kling-video-v3', seconds: 5 });
+  const redirected = buildSubmitRequest({ ...context, model: 'kling-video-v3', upstreamModel: 'minimax-video-h3' });
+  assert.equal(redirected.body.model, 'minimax-video-h3');
+  assert.equal(extractUsage({ ...context, requestBody: redirected.body }).seconds, 5);
+  assert.equal(buildSubmitRequest({ ...context, upstreamModel: '' }).body.model, 'kling-video-v3');
+});
+
 test('rejects malformed channel base URLs before sending a privileged request', () => {
   for (const baseUrl of ['not-a-url', 'file:///tmp/hub', 'https://user:pass@hub.invalid', 'http://hub.invalid?x=1']) {
     assert.throws(() => buildSubmitRequest({ ...driverContext({ prompt: 'A cat' }), baseUrl }), /base url/);
@@ -161,6 +169,18 @@ test('maps pending, success, failure, and unknown statuses', () => {
   });
   assert.deepEqual(parseTaskResult({}, { status: 'failed', error: { message: 'denied' } }), { status: 'FAILURE', reason: 'denied' });
   assert.deepEqual(parseTaskResult({}, { status: 'mystery' }), { status: 'UNKNOWN', reason: 'unrecognized status: mystery' });
+});
+
+test('redacts credentials and signed URLs from bounded failure reasons', () => {
+  const result = parseTaskResult({}, {
+    status: 'failed',
+    error: { message: 'request https://example.com/video?token=fixture-secret failed\nAuthorization: Bearer fixture-secret ' + 'x'.repeat(400) },
+  });
+  assert.equal(result.status, 'FAILURE');
+  assert.ok(result.reason.length <= 300);
+  assert.ok(!result.reason.includes('fixture-secret'));
+  assert.ok(result.reason.includes('[URL]'));
+  assert.ok(result.reason.includes('[REDACTED]'));
 });
 
 test('exposes only successful videos and downloads via authenticated upstream content URL', () => {

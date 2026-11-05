@@ -6,7 +6,7 @@
 
 ## 版本
 
-`1.1.0`
+`1.1.1`
 
 ## 支持模型
 
@@ -49,7 +49,7 @@
 workbuddy-panel-video
 ```
 
-版本为 `1.1.0`。数据库中的 `source` 必须是**完整 JS 源码**，不能只存 `file:///...` 路径。安装后检查运行日志没有 `compile task plugin` 错误。
+版本为 `1.1.1`。数据库中的 `source` 必须是**完整 JS 源码**，不能只存 `file:///...` 路径。安装后检查运行日志没有 `compile task plugin` 错误。
 
 ### 3. 创建渠道
 
@@ -128,6 +128,7 @@ GET /v1/videos/{task_id}/content
 
 - 仓库不包含 API key、Token、真实任务 ID、签名 URL、账号配置或测试视频。
 - `ctx.apiKey` 只用于访问 Panel，不应转发到 COS。
+- 提交时使用 New API 最终选择的上游模型，仅添加一次 `cn:` 前缀；任务失败原因会移除 HTTP(S) URL 和明显凭据字段，并限制为 300 字符。
 - 保持 New API 的私有 IP 禁止策略，按域名精确放行。
 - 视频直链通常有时效，请通过 New API 下载并自行保存需要的成品。
 - Panel 的任务查询与限流策略由其实现决定；插件不绕过账号或限流。

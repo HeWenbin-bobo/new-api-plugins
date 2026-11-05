@@ -16,7 +16,7 @@ export const meta = {
     en: "Video generation through a workbuddy2api-panel gateway",
     zh: "通过 workbuddy2api-panel 网关生成视频",
   },
-  version: "1.1.0",
+  version: "1.1.1",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:7863",
   allowedHosts: [...CONTENT_HOSTS],
@@ -146,6 +146,15 @@ function contentUrl(ctx) {
   return parsed.href;
 }
 
+function failureReason(data) {
+  const error = object(data.error);
+  const reason = text(error && error.message) || text(data.error) || "video generation failed";
+  return reason
+    .replace(/https?:\/\/[^\s<>"']+/gi, "[URL]")
+    .replace(/\b(authorization\s*:\s*(?:bearer|basic)\s+|api[_-]?key\s*[:=]\s*|token\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
+    .replace(/[\x00-\x20\x7f]+/g, " ").trim().slice(0, 300);
+}
+
 function gatewayUrl(baseUrl, path) {
   let parsed;
   try {
@@ -234,10 +243,7 @@ export function parseTaskResult(ctx, body) {
   if (status !== "SUCCESS" && Number.isFinite(progress) && progress > 0 && progress < 100) {
     result.progress = String(progress) + "%";
   }
-  if (status === "FAILURE") {
-    const error = object(data.error);
-    result.reason = text(error && error.message) || text(data.error) || "video generation failed";
-  }
+  if (status === "FAILURE") result.reason = failureReason(data);
   return result;
 }
 

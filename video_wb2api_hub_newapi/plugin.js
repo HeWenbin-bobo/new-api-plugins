@@ -12,7 +12,7 @@ export const meta = {
     en: "Video generation through a workbuddy2api-hub gateway",
     zh: "通过 workbuddy2api-hub 网关生成视频",
   },
-  version: "1.3.0",
+  version: "1.3.1",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:8788",
   models: ["minimax-video-h3", "kling-video-v3"],
@@ -113,6 +113,15 @@ function decodeVideoRequest(ctx) {
   return { kind: "submit", model: ctx.model, action, requestBody: normalized };
 }
 
+function failureReason(data) {
+  const error = object(data.error);
+  const reason = text(error && error.message) || text(data.error) || "video generation failed";
+  return reason
+    .replace(/https?:\/\/[^\s<>"']+/gi, "[URL]")
+    .replace(/\b(authorization\s*:\s*(?:bearer|basic)\s+|api[_-]?key\s*[:=]\s*|token\s*[:=]\s*)[^\s,;]+/gi, "$1[REDACTED]")
+    .replace(/[\x00-\x20\x7f]+/g, " ").trim().slice(0, 300);
+}
+
 function gatewayUrl(baseUrl, path) {
   // The administrator controls this origin; still reject non-HTTP and embedded
   // credentials so a malformed channel cannot redirect a privileged request.
@@ -200,10 +209,7 @@ export function parseTaskResult(ctx, body) {
     result.progress = String(progress) + "%";
   }
   if (status === "SUCCESS" && text(data.url)) result.url = text(data.url);
-  if (status === "FAILURE") {
-    const error = object(data.error);
-    result.reason = text(error && error.message) || text(data.error) || "video generation failed";
-  }
+  if (status === "FAILURE") result.reason = failureReason(data);
   return result;
 }
 
