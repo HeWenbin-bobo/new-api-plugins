@@ -61,7 +61,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         index = min(len(self.server.requests) - 1, len(self.server.statuses) - 1)
         status = self.server.statuses[index]
-        if status == 200 and self.server.response_body is not None:
+        payload = self.server.payloads[index] if self.server.payloads is not None else None
+        if payload is not None:
+            body = payload if isinstance(payload, bytes) else json.dumps(payload).encode()
+        elif status == 200 and self.server.response_body is not None:
             body = self.server.response_body
         elif status == 200 and self.server.remote_image:
             image_url = f"http://127.0.0.1:{self.server.server_port}/image.png"
@@ -148,8 +151,8 @@ class Handler(BaseHTTPRequestHandler):
 
 @contextmanager
 def fake_api(statuses, *, remote_image=False, redirect_target=None, download_status=200,
-             download_body=IMAGE_BYTES, response_body=None, truncate_error_body=False,
-             image_count=1):
+             download_body=IMAGE_BYTES, response_body=None, payloads=None,
+             truncate_error_body=False, image_count=1):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.statuses = statuses
     server.requests = []
@@ -159,6 +162,7 @@ def fake_api(statuses, *, remote_image=False, redirect_target=None, download_sta
     server.generation_redirect_target = None
     server.generation_get_requests = []
     server.response_body = response_body
+    server.payloads = payloads
     server.truncate_error_body = truncate_error_body
     server.download_status = download_status
     server.download_count = 0
@@ -343,20 +347,20 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(1, source.download_requests)
         self.assertEqual(0, target.download_requests)
 
-    def test_oversized_image_download_is_terminal(self) -> None:
+    def test_oversized_image_download_falls_back_to_next_model(self) -> None:
         self.module.MAX_IMAGE_BYTES = len(IMAGE_BYTES)
-        with fake_api([200], remote_image=True,
-                      download_body=IMAGE_BYTES + b"x") as (first, first_url), \
-                fake_api([200], remote_image=True) as (second, second_url):
-            with self.assertRaises(RuntimeError) as raised:
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [first_url, second_url],
-                    ["hunyuan-image-alpha"], 2,
-                )
-        self.assertIn("过大", str(raised.exception))
-        self.assertEqual(1, len(first.requests))
-        self.assertEqual(0, len(second.requests))
-        self.assertFalse(self.output.exists())
+        encoded = base64.b64encode(IMAGE_BYTES).decode()
+        with fake_api(
+            [200, 200], remote_image=True, download_body=IMAGE_BYTES + b"x",
+            payloads=[None, {"data": [{"b64_json": encoded}]}],
+        ) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
     def test_rejected_redirect_response_is_closed(self) -> None:
         response = mock.Mock()
@@ -434,45 +438,45 @@ class GenerateTests(unittest.TestCase):
         self.assertIsNone(source.download_authorization)
         self.assertIsNone(target.download_authorization)
 
-    def test_non_http_redirect_is_terminal(self) -> None:
-        with fake_api([200], remote_image=True,
-                      redirect_target="ftp://127.0.0.1:1/image") as (first, first_url), \
-                fake_api([200], remote_image=True) as (second, second_url):
-            with self.assertRaises(RuntimeError) as raised:
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [first_url, second_url],
-                    ["hunyuan-image-alpha"], 2,
-                )
-        self.assertIn("图片重定向仅支持 HTTP(S)", str(raised.exception))
-        self.assertEqual(1, len(first.requests))
-        self.assertEqual(0, len(second.requests))
-        self.assertFalse(self.output.exists())
+    def test_non_http_redirect_falls_back_to_next_model(self) -> None:
+        encoded = base64.b64encode(IMAGE_BYTES).decode()
+        with fake_api(
+            [200, 200], remote_image=True,
+            redirect_target="ftp://127.0.0.1:1/image",
+            payloads=[None, {"data": [{"b64_json": encoded}]}],
+        ) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
-    def test_non_image_download_is_terminal(self) -> None:
-        with fake_api([200], remote_image=True,
-                      download_body=b"<html>upstream error</html>") as (first, first_url), \
-                fake_api([200], remote_image=True) as (second, second_url):
-            with self.assertRaises(RuntimeError) as raised:
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [first_url, second_url],
-                    ["hunyuan-image-alpha"], 2,
-                )
-        self.assertIn("不是支持的图片", str(raised.exception))
-        self.assertEqual(1, len(first.requests))
-        self.assertEqual(0, len(second.requests))
-        self.assertFalse(self.output.exists())
+    def test_non_image_download_falls_back_to_next_model(self) -> None:
+        encoded = base64.b64encode(IMAGE_BYTES).decode()
+        with fake_api(
+            [200, 200], remote_image=True, download_body=b"<html>upstream error</html>",
+            payloads=[None, {"data": [{"b64_json": encoded}]}],
+        ) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
-    def test_download_failure_does_not_try_next_model(self) -> None:
+    def test_download_failure_falls_back_to_next_model(self) -> None:
         with fake_api([200, 200], remote_image=True,
                       download_status=[500, 200]) as (server, url):
-            with self.assertRaises(RuntimeError) as raised:
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [url],
-                    ["hunyuan-image-alpha", "gpt-image-2"], 2,
-                )
-        self.assertEqual(1, len(server.requests))
-        self.assertIn("计费", str(raised.exception))
-        self.assertFalse(self.output.exists())
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
     def test_non_image_download_is_not_saved_as_success(self) -> None:
         with fake_api([200], remote_image=True,
@@ -527,29 +531,25 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(1, len(second.requests))
         self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
 
-    def test_non_image_encoded_images_are_terminal(self) -> None:
+    def test_non_image_encoded_images_fall_back_to_next_model(self) -> None:
         encoded = base64.b64encode(b"<html>not an image</html>").decode()
         cases = (
             ("base64", {"b64_json": encoded}),
             ("data_url", {"url": "data:image/png;base64," + encoded}),
         )
         for name, item in cases:
-            body = json.dumps({"data": [item]}).encode()
             with self.subTest(name=name), \
-                    fake_api([200], response_body=body) as (first, first_url), \
-                    fake_api([200]) as (second, second_url):
+                    fake_api([200, 200], payloads=[{"data": [item]}, None]) as (server, url):
                 self.output.unlink(missing_ok=True)
-                with self.assertRaises(RuntimeError) as raised:
-                    self.module.generate_image(
-                        "cat", self.output, "test-key", [first_url, second_url],
-                        ["hunyuan-image-alpha"], 2,
-                    )
-                self.assertIn("不是支持的图片", str(raised.exception))
-                self.assertEqual(1, len(first.requests))
-                self.assertEqual(0, len(second.requests))
-                self.assertFalse(self.output.exists())
+                result = self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["first", "second"], 2,
+                )
+                self.assertEqual((self.output,), result.paths)
+                self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+                self.assertEqual(2, len(server.requests))
+                self.assertEqual("second", result.model)
 
-    def test_oversized_encoded_images_are_terminal(self) -> None:
+    def test_oversized_encoded_images_fall_back_to_next_model(self) -> None:
         self.module.MAX_IMAGE_BYTES = len(IMAGE_BYTES)
         encoded = base64.b64encode(IMAGE_BYTES + b"x").decode()
         cases = (
@@ -557,20 +557,16 @@ class GenerateTests(unittest.TestCase):
             ("data_url", {"url": "data:image/png;base64," + encoded}),
         )
         for name, item in cases:
-            body = json.dumps({"data": [item]}).encode()
             with self.subTest(name=name), \
-                    fake_api([200], response_body=body) as (first, first_url), \
-                    fake_api([200]) as (second, second_url):
+                    fake_api([200, 200], payloads=[{"data": [item]}, None]) as (server, url):
                 self.output.unlink(missing_ok=True)
-                with self.assertRaises(RuntimeError) as raised:
-                    self.module.generate_image(
-                        "cat", self.output, "test-key", [first_url, second_url],
-                        ["hunyuan-image-alpha"], 2,
-                    )
-                self.assertIn("过大", str(raised.exception))
-                self.assertEqual(1, len(first.requests))
-                self.assertEqual(0, len(second.requests))
-                self.assertFalse(self.output.exists())
+                result = self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["first", "second"], 2,
+                )
+                self.assertEqual((self.output,), result.paths)
+                self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+                self.assertEqual(2, len(server.requests))
+                self.assertEqual("second", result.model)
 
     def test_oversized_generation_response_tries_next_url(self) -> None:
         encoded = base64.b64encode(IMAGE_BYTES).decode()
@@ -672,10 +668,55 @@ class GenerateTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as raised:
                 self.module.generate_image("cat", self.output, "test-key",
                                            urls, EXPECTED_MODELS, 2)
-        self.assertRegex(str(raised.exception),
-                         rf"{len(urls) * len(EXPECTED_MODELS)}.*均失败.*无法使用")
-        self.assertNotIn("sk-test-secret", str(raised.exception))
+        message = str(raised.exception)
+        self.assertRegex(message, rf"{len(urls) * len(EXPECTED_MODELS)}.*均失败")
+        self.assertIn("未能完整保存所请求的图片", message)
+        self.assertIn("重复费用", message)
+        self.assertNotIn("sk-test-secret", message)
         self.assertFalse(self.output.exists())
+
+    def test_all_paid_delivery_failures_report_both_models_and_charge_risk(self) -> None:
+        encoded = base64.b64encode(IMAGE_BYTES).decode()
+        with fake_api([200, 200], payloads=[
+            {"data": {"b64_json": encoded}},
+            {"data": [{"url": "http://[::1"}]},
+        ]) as (server, url):
+            with self.assertRaises(RuntimeError) as raised:
+                self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["first", "second"], 2,
+                )
+        message = str(raised.exception)
+        self.assertEqual(2, len(server.requests))
+        self.assertIn("first", message)
+        self.assertIn("second", message)
+        self.assertIn("重复费用", message)
+        self.assertNotIn("test-key", message)
+        self.assertFalse(self.output.exists())
+
+    def test_empty_entries_fall_back_to_next_model(self) -> None:
+        with fake_api([200, 200], payloads=[{"data": []}, None]) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
+
+    def test_incomplete_count_falls_back_to_next_model(self) -> None:
+        encoded = base64.b64encode(IMAGE_BYTES).decode()
+        with fake_api([200, 200], payloads=[
+            {"data": [{"b64_json": encoded}]},
+            {"data": [{"b64_json": encoded}, {"b64_json": encoded}]},
+        ]) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2, count=2,
+            )
+        targets = tuple(self.module._output_targets(self.output, 2))
+        self.assertEqual(targets, result.paths)
+        self.assertTrue(all(path.read_bytes() == IMAGE_BYTES for path in targets))
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
     def test_count_above_one_writes_numbered_files(self) -> None:
         module_response = [{"b64_json": base64.b64encode(IMAGE_BYTES).decode()}] * 2
@@ -738,49 +779,53 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(b"second-original", second.read_bytes())
         self.assertEqual([], list(Path(self.tempdir.name).glob("*.tmp")))
 
-    def test_generate_output_error_is_terminal_and_preserves_output(self) -> None:
+    def test_generate_output_error_falls_back_to_next_model(self) -> None:
         self.output.write_bytes(b"original")
-        with fake_api([200]) as (server, url):
-            with mock.patch.object(
-                self.module.os, "replace", side_effect=PermissionError("read-only"),
-            ):
-                with self.assertRaises(self.module._PaidDeliveryError) as raised:
-                    self.module.generate_image(
-                        "cat", self.output, "test-key", [url], ["gpt-image-2.5"], 2,
-                    )
-        self.assertIn("写入输出文件失败", str(raised.exception))
-        self.assertIn(str(self.output.parent), str(raised.exception))
-        self.assertEqual(1, len(server.requests))
-        self.assertEqual(b"original", self.output.read_bytes())
+        real_replace = self.module.os.replace
+        replace_calls = 0
+
+        def fail_first_replace(source, target):
+            nonlocal replace_calls
+            replace_calls += 1
+            if replace_calls == 1:
+                raise PermissionError("read-only")
+            return real_replace(source, target)
+
+        with fake_api([200, 200]) as (server, url):
+            with mock.patch.object(self.module.os, "replace", side_effect=fail_first_replace):
+                result = self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["first", "second"], 2,
+                )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
         self.assertEqual([], list(Path(self.tempdir.name).glob("*.tmp")))
 
-    def test_non_list_data_payload_is_terminal(self) -> None:
+    def test_non_list_data_payload_falls_back_to_next_model(self) -> None:
         encoded = base64.b64encode(IMAGE_BYTES).decode()
-        body = json.dumps({"data": {"b64_json": encoded}}).encode()
-        with fake_api([200], response_body=body) as (first, first_url), \
-                fake_api([200]) as (second, second_url):
-            with self.assertRaises(self.module._PaidDeliveryError) as raised:
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [first_url, second_url],
-                    ["hunyuan-image-alpha"], 2,
-                )
-        self.assertIn("已计费", str(raised.exception))
-        self.assertEqual(1, len(first.requests))
-        self.assertEqual(0, len(second.requests))
-        self.assertFalse(self.output.exists())
+        with fake_api(
+            [200, 200], payloads=[{"data": {"b64_json": encoded}}, None],
+        ) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
-    def test_malformed_image_url_is_terminal(self) -> None:
-        body = json.dumps({"data": [{"url": "http://[::1"}]}).encode()
-        with fake_api([200], response_body=body) as (first, first_url), \
-                fake_api([200]) as (second, second_url):
-            with self.assertRaises(self.module._PaidDeliveryError):
-                self.module.generate_image(
-                    "cat", self.output, "test-key", [first_url, second_url],
-                    ["hunyuan-image-alpha"], 2,
-                )
-        self.assertEqual(1, len(first.requests))
-        self.assertEqual(0, len(second.requests))
-        self.assertFalse(self.output.exists())
+    def test_malformed_image_url_falls_back_to_next_model(self) -> None:
+        with fake_api(
+            [200, 200], payloads=[{"data": [{"url": "http://[::1"}]}, None],
+        ) as (server, url):
+            result = self.module.generate_image(
+                "cat", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual((self.output,), result.paths)
+        self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
 
     def test_later_replace_failure_restores_earlier_output(self) -> None:
         first, second = self.module._output_targets(self.output, 2)
@@ -828,17 +873,17 @@ class GenerateTests(unittest.TestCase):
                 raise PermissionError("target locked")
             return real_replace(source, target)
 
-        with fake_api([200]) as (server, url):
+        with fake_api([200, 200]) as (server, url):
             with mock.patch.object(self.module.os, "replace", side_effect=fail_target_replace):
-                with self.assertRaises(self.module._PaidDeliveryError) as raised:
+                with self.assertRaises(RuntimeError) as raised:
                     self.module.generate_image(
-                        "cat", self.output, "test-key", [url], ["gpt-image-2.5"], 2,
+                        "cat", self.output, "test-key", [url], ["first", "second"], 2,
                     )
         backups = list(Path(self.tempdir.name).glob("*.backup-*"))
         self.assertEqual(1, len(backups))
         self.assertEqual(b"original", backups[0].read_bytes())
         self.assertIn(str(backups[0]), str(raised.exception))
-        self.assertEqual(1, len(server.requests))
+        self.assertEqual(2, len(server.requests))
 
     def test_revised_prompt_is_surfaced(self) -> None:
         with fake_api([200]) as (server, url):

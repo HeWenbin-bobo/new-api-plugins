@@ -5,17 +5,17 @@ const RESOLUTION_SET = new Set(USAGE_RESOLUTIONS);
 
 export const meta = {
   apiVersion: 1,
-  key: "workbuddy-kling",
-  name: "WorkBuddy Kling",
+  key: "workbuddy-video",
+  name: "WorkBuddy Video",
   icon: "Kling.Color",
   description: {
-    en: "Kling video generation through a workbuddy2api-hub gateway",
-    zh: "通过 workbuddy2api-hub 网关生成可灵视频",
+    en: "Video generation through a workbuddy2api-hub gateway",
+    zh: "通过 workbuddy2api-hub 网关生成视频",
   },
-  version: "1.0.1",
+  version: "1.1.0",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:8788",
-  models: ["kling-video-v3"],
+  models: ["minimax-video-h3", "kling-video-v3"],
   fetchMode: "per_task",
   protocols: ["openai_video"],
   usageSchema: {

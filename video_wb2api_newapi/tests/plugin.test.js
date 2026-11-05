@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createServer } from 'node:http';
 import test from 'node:test';
 import {
   buildContentRequest,
@@ -25,9 +26,11 @@ const driverContext = (requestBody) => ({
 
 test('manifest declares the OpenAI video protocol without a channel override', () => {
   assert.equal(meta.apiVersion, 1);
-  assert.equal(meta.key, 'workbuddy-kling');
+  assert.equal(meta.key, 'workbuddy-video');
+  assert.equal(meta.name, 'WorkBuddy Video');
+  assert.equal(meta.version, '1.1.0');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:8788');
-  assert.deepEqual(meta.models, ['kling-video-v3']);
+  assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
   assert.equal(meta.fetchMode, 'per_task');
   assert.deepEqual(meta.protocols, ['openai_video']);
   assert.equal(meta.channelTypes, undefined);
@@ -58,6 +61,40 @@ test('decodes JSON text-to-video and builds an authenticated submission', () => 
     model: 'kling-video-v3', prompt: 'A cat', seconds: 5, size: '1280x720',
   });
   assert.equal(request.action, 'text_to_video');
+});
+
+test('forwards minimax-video-h3 to the upstream gateway', async (t) => {
+  let upstreamBody;
+  const server = createServer((req, res) => {
+    let body = '';
+    req.setEncoding('utf8');
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', () => {
+      upstreamBody = JSON.parse(body);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ id: 'wb-minimax', status: 'queued' }));
+    });
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+  t.after(() => new Promise((resolve) => server.close(resolve)));
+
+  const decoded = protocols.openai_video.decodeRequest({
+    body: { kind: 'json', value: { prompt: 'A cat' } },
+    model: meta.models[0],
+  });
+  const request = buildSubmitRequest({
+    ...driverContext(decoded.requestBody),
+    model: decoded.model,
+    upstreamModel: decoded.model,
+    baseUrl: `http://127.0.0.1:${server.address().port}`,
+  });
+  const response = await fetch(request.url, {
+    method: request.method,
+    headers: request.headers,
+    body: JSON.stringify(request.body),
+  });
+  assert.equal(response.status, 200);
+  assert.equal(upstreamBody.model, 'minimax-video-h3');
 });
 
 test('accepts a JSON image URL as image-to-video', () => {

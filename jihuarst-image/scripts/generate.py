@@ -75,10 +75,7 @@ class _ImageDownloadError(RuntimeError):
 
 
 class _PaidDeliveryError(RuntimeError):
-    """The generation was paid for, but its artifacts could not be delivered.
-
-    Terminal: falling through to another URL/model would pay for a new generation.
-    """
+    """A paid response could not be delivered by this URL/model combination."""
 
 
 class _HTTPOnlyRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -566,7 +563,7 @@ def generate_image(
                 entries = result.get("data") or [] if isinstance(result, dict) else []
                 if not isinstance(entries, list):
                     raise _PaidDeliveryError(
-                        "本次生图已计费，但图片响应的 data 不是数组；未提交新的生图请求。"
+                        "本次生图已计费，但图片响应的 data 不是数组；将尝试下一组合。"
                     )
                 images, failures = _decode_images(result, timeout, count)
                 if not entries:
@@ -580,10 +577,12 @@ def generate_image(
                         )
                     raise _PaidDeliveryError(
                         f"本次生图已计费，但图片获取不完整（请求 {count} 张，"
-                        f"成功 {len(images)} 张）；未提交新的生图请求。\n"
+                        f"成功 {len(images)} 张）；将尝试下一组合。\n"
                         + "\n".join(redact_secrets(item, api_key) for item in failures)
                     )
                 revised = result.get("data", [{}])[0].get("revised_prompt")
+                targets = _output_targets(output_path, count)
+                saved = _write_images_atomically(targets, images)
             except urllib.error.HTTPError as exc:
                 try:
                     try:
@@ -602,9 +601,7 @@ def generate_image(
                 )
                 LOGGER.warning("失败: %s", errors[-1])
                 continue
-            except _PaidDeliveryError:
-                raise
-            except Exception as exc:  # network / malformed response / bad local file
+            except Exception as exc:  # network / response / image / local output
                 errors.append(
                     f"{base_url} | {model}: {type(exc).__name__}: "
                     f"{redact_secrets(str(exc), api_key)}"
@@ -612,15 +609,6 @@ def generate_image(
                 LOGGER.warning("失败: %s", errors[-1])
                 continue
 
-            targets = _output_targets(output_path, count)
-            try:
-                saved = _write_images_atomically(targets, images)
-            except OSError as exc:
-                raise _PaidDeliveryError(
-                    f"本次生图已计费，但写入输出文件失败；未提交新的生图请求。"
-                    f"输出路径: {output_path.parent}\n"
-                    f"{type(exc).__name__}: {redact_secrets(str(exc), api_key)}"
-                ) from exc
             return GenerationResult(
                 base_url=base_url,
                 model=model,
@@ -631,7 +619,9 @@ def generate_image(
 
     details = "\n".join(errors)
     raise RuntimeError(
-        f"{total} 次 URL/模型组合尝试均失败；jihuarst 生图 skill 当前无法使用。\n{details}"
+        f"{total} 次 URL/模型组合尝试均失败；未能完整保存所请求的图片。\n"
+        "部分尝试可能已生成并计费；重试其他组合可能产生重复费用，请核对上游用量。\n"
+        f"{details}"
     )
 
 

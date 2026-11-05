@@ -18,7 +18,7 @@
 
 | 模块 | 类型 | 能力 | 入口 |
 |:---|:---|:---|:---|
-| **WorkBuddy Kling** | New API Task Plugin | 将 OpenAI Video 请求转发至 WorkBuddy，支持文生视频、图生视频、任务轮询与内容代理 | [使用文档](./kling_wb2api_newapi/README.md) |
+| **WorkBuddy Video** | New API Task Plugin | 将 OpenAI Video 请求转发至 WorkBuddy，支持文生视频、图生视频、任务轮询与内容代理 | [使用文档](./video_wb2api_newapi/README.md) |
 | **Jihuarst Image** | Agent Skill | 文生图、参考图改图、多图融合、局部重绘；多入口与多模型自动回退 | [技能说明](./jihuarst-image/SKILL.md) |
 | **Jihuarst Video** | Agent Skill | 文生视频、单张参考图生视频、异步任务轮询、MP4 下载与双模型回退 | [技能说明](./jihuarst-video/SKILL.md) |
 | **Zaiwen Image Generation** | Agent Skill | 通过在问 OpenAI 兼容 Images API 生成及编辑图像 | [技能说明](./zaiwen-image-generation/SKILL.md) |
@@ -30,13 +30,13 @@
 
 | 项目 | 直接下载 |
 |:---|:---|
-| WorkBuddy Kling | [kling_wb2api_newapi.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/kling_wb2api_newapi/kling_wb2api_newapi.zip) |
+| WorkBuddy Video | [video_wb2api_newapi.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/video_wb2api_newapi/video_wb2api_newapi.zip) |
 | Jihuarst Image | [jihuarst-image.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-image/jihuarst-image.zip) |
 | Jihuarst Video | [jihuarst-video.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/jihuarst-video/jihuarst-video.zip) |
 | Zaiwen Image Generation | [zaiwen-image-generation.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/zaiwen-image-generation/zaiwen-image-generation.zip) |
 | Unified Web MCP 0.1.0 | [unified-web-mcp-0.1.0.zip](https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip) |
 
-解压后按各项目文档安装，并从示例配置创建自己的本地配置。ZIP 分发不改变 New API 插件市场边界：市场仍只通过 `index.json` 安装 WorkBuddy Kling 插件。
+解压后按各项目文档安装，并从示例配置创建自己的本地配置。ZIP 分发不改变 New API 插件市场边界：市场仍只通过 `index.json` 安装 WorkBuddy Video 插件。
 
 ## 架构全景
 
@@ -46,7 +46,7 @@ flowchart LR
     U --> S[Agent Skills]
     U --> M[Unified Web MCP]
 
-    P --> W[WorkBuddy · Kling Video]
+    P --> W[WorkBuddy · MiniMax / Kling Video]
     S --> I[Image Generation APIs]
     S --> V[Jihuarst Video Gateways]
     M --> R[Search / Fetch Providers]
@@ -54,7 +54,7 @@ flowchart LR
     P -. "index.json 显式发布" .-> G[GitHub Raw Source]
 ```
 
-> **边界清晰：** `kling_wb2api_newapi` 通过 New API 插件市场安装；三个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
+> **边界清晰：** `video_wb2api_newapi` 通过 New API 插件市场安装；三个 Skill 和 MCP 使用各自的客户端安装方式，不会出现在 New API 插件列表中。
 
 ## 安装 New API 插件
 
@@ -67,12 +67,12 @@ flowchart LR
    https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/index.json
    ```
 
-3. 保存并刷新插件市场，找到 **WorkBuddy Kling**，选择版本并安装、激活。
-4. 创建 `Task Plugin` 渠道，选择 `workbuddy-kling`，填入 WorkBuddy Base URL、API Key 与模型 `kling-video-v3`。
+3. 保存并刷新插件市场，找到 **WorkBuddy Video**，选择版本并安装、激活。
+4. 创建 `Task Plugin` 渠道，选择 `workbuddy-video`，填入 WorkBuddy Base URL、API Key，并选择 `minimax-video-h3`（优先）或 `kling-video-v3`。
 
 > 添加的是上方 **Raw `index.json` 地址**，不是 GitHub 仓库主页。插件位于子目录不影响安装；索引中的 `versions[].path` 会精确定位源码，并通过 SHA-256 固定当前版本。
 
-渠道及接口的完整配置见 [WorkBuddy Kling 文档](./kling_wb2api_newapi/README.md)。
+渠道及接口的完整配置见 [WorkBuddy Video 文档](./video_wb2api_newapi/README.md)。
 
 ## 安装 Skill
 
@@ -108,7 +108,7 @@ claude mcp add --transport stdio unified-web -- node "/absolute/path/to/unified-
 
 ```bash
 # New API 插件
-cd kling_wb2api_newapi && npm test
+cd video_wb2api_newapi && npm test
 
 # Jihuarst Image Skill
 cd jihuarst-image && python -m unittest discover -s tests -v

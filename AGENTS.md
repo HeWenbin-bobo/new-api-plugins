@@ -4,7 +4,7 @@
 
 This is one public repository containing five independently distributed tools:
 
-- `kling_wb2api_newapi/`: a New API Task Plugin, distributed through the root `index.json`.
+- `video_wb2api_newapi/`: a New API Task Plugin, distributed through the root `index.json`.
 - `jihuarst-image/`: an Agent Skill, installed into a client's skills directory.
 - `jihuarst-video/`: an Agent Skill, installed into a client's skills directory.
 - `zaiwen-image-generation/`: an Agent Skill, installed into a client's skills directory.
@@ -14,22 +14,22 @@ Only the Task Plugin belongs in the New API marketplace. Never add Skills or MCP
 
 ## Repository and installation rules
 
-- Keep the current five top-level project directories. Do not move `kling_wb2api_newapi/plugin.js` to the repository root.
+- Keep the current five top-level project directories. Do not move `video_wb2api_newapi/plugin.js` to the repository root.
 - New API does **not** recursively scan GitHub repositories. The root `index.json` is the marketplace entry point and must list every installable Task Plugin explicitly.
 - Add a source using the raw index URL, not the repository homepage:
 
   `https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/index.json`
 
-- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; the current path is `kling_wb2api_newapi/plugin.js`.
+- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; the current path is `video_wb2api_newapi/plugin.js`.
 - New API requires Task Plugin API v1 support. Plugin installation and channel configuration are administrator trust decisions; review source before activation.
 - Installing the New API plugin does not install the Skills or MCP server. Follow each project's own README or SKILL.md for those.
 
 ## Plugin release rules
 
-When releasing `workbuddy-kling`:
+When releasing `workbuddy-video`:
 
 1. Run the plugin's offline tests.
-2. Increment `meta.version` in `kling_wb2api_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
+2. Increment `meta.version` in `video_wb2api_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
 3. Replace `plugins[0].versions` in `index.json` with a single entry for the new release, removing superseded versions. Never reuse an existing version number for different source.
 4. Set `latest` to the new version and update `sha256` to the lowercase SHA-256 hash of the exact LF-normalized `plugin.js` bytes. `.gitattributes` preserves this format across Windows checkouts.
 5. Keep `key`, `models`, `protocols`, `minApiVersion`, and `kind` consistent with the plugin manifest and API contract.
@@ -76,7 +76,7 @@ The marketplace intentionally exposes only the latest release through the single
 - Never turn failed, skipped, or unavailable work into a successful or empty result. Preserve explicit failure states in return values and user-visible output; use bounded retries with timeouts and backoff for transient errors, and handle fatal or invalid-input errors before generic retryable ones.
 - When adding or changing cache or resume behavior, bind entries to the source bytes and behavior-affecting configuration, reject stale or mismatched results, and write replacement state atomically so failure preserves the last valid result. Test both first-time creation and rejection of an outdated result.
 - After every upgrade to a distributable project, regenerate its client ZIP without a separate reminder; packaging is part of the upgrade, not an optional follow-up:
-  - `kling_wb2api_newapi/` → `kling_wb2api_newapi/kling_wb2api_newapi.zip`
+  - `video_wb2api_newapi/` → `video_wb2api_newapi/video_wb2api_newapi.zip`
   - `jihuarst-image/` → `jihuarst-image/jihuarst-image.zip`
   - `jihuarst-video/` → `jihuarst-video/jihuarst-video.zip`
   - `zaiwen-image-generation/` → `zaiwen-image-generation/zaiwen-image-generation.zip`
@@ -84,7 +84,7 @@ The marketplace intentionally exposes only the latest release through the single
   Track only these five exact ZIP paths in Git; all other archives remain blocked. Use an explicit file allowlist, verify a clean extraction passes the project's offline tests, compare archived files byte for byte with the current source, and run the archive-content credential and safety audit before staging.
 - Run tests from each project's own directory:
   - Repository push guard: `node --test .githooks/check-push.test.js` (run from the repository root)
-  - `kling_wb2api_newapi/`: `npm test`
+  - `video_wb2api_newapi/`: `npm test`
   - `jihuarst-image/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `jihuarst-video/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `unified-web-mcp/`: `npm test` (Node.js 24+; use `npm ci` in a clean checkout)

@@ -3,30 +3,32 @@
   "name": "HeWenbin AI Toolchain",
   "plugins": [
     {
-      "key": "workbuddy-kling",
-      "name": "WorkBuddy Kling",
+      "key": "workbuddy-video",
+      "name": "WorkBuddy Video",
       "icon": "Kling.Color",
       "description": {
-        "en": "Kling video generation through a workbuddy2api-hub gateway",
-        "zh": "通过 workbuddy2api-hub 网关生成可灵视频"
+        "en": "Video generation through a workbuddy2api-hub gateway",
+        "zh": "通过 workbuddy2api-hub 网关生成视频"
       },
       "models": [
+        "minimax-video-h3",
         "kling-video-v3"
       ],
       "protocols": [
         {
           "name": "openai_video",
           "models": [
+            "minimax-video-h3",
             "kling-video-v3"
           ]
         }
       ],
-      "latest": "1.0.1",
+      "latest": "1.1.0",
       "versions": [
         {
-          "version": "1.0.1",
-          "path": "kling_wb2api_newapi/plugin.js",
-          "sha256": "e71c4b307b26d346cacfacbb154adfe7578549c4aa671813b23702e41d9669dd",
+          "version": "1.1.0",
+          "path": "video_wb2api_newapi/plugin.js",
+          "sha256": "3aceb01981e6a3c6b60accf10375b805b555fea5a7ad3cac67478c110e893a67",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:8788"

@@ -1,6 +1,6 @@
 {
-  "name": "workbuddy-kling-task-plugin",
-  "version": "1.0.1",
+  "name": "workbuddy-video-task-plugin",
+  "version": "1.1.0",
   "private": true,
   "type": "module",
   "scripts": {

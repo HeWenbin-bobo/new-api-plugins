@@ -1,6 +1,6 @@
-# workbuddy-kling
+# WorkBuddy Video
 
-将 new-api 的 OpenAI Video 请求转发到 workbuddy2api-hub，使用 `kling-video-v3` 生成视频。
+将 new-api 的 OpenAI Video 请求转发到 workbuddy2api-hub，使用 `minimax-video-h3` 或 `kling-video-v3` 生成视频。
 
 - 对外接口：`POST /v1/videos`、`GET /v1/videos/{id}`、`GET /v1/videos/{id}/content`
 - 上游接口：WorkBuddy `POST /v1/videos`、`GET /v1/videos/{id}` 及其签名内容地址
@@ -12,7 +12,7 @@
 ## 1. 准备 WorkBuddy
 
 1. 启动 workbuddy2api-hub，默认端口为 `8788`。
-2. 在看板中启用**媒体能力/媒体模块**，并确认可用模型目录包含 `kling-video-v3`。
+2. 在看板中启用**媒体能力/媒体模块**，并确认可用模型目录包含 `minimax-video-h3` 和 `kling-video-v3`。
 3. 在看板「设置」中创建 API Key，并确保该 Key 的模型限制和出口配置允许此视频模型。
 
 插件向上游提交的地址是 `{Base URL}/v1/videos`，因此 new-api 渠道中的 Base URL 不要带 `/v1`。
@@ -23,7 +23,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-kling`，版本为 `1.0.1`。
+3. 插件 key 为 `workbuddy-video`，版本为 `1.1.0`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 
@@ -32,10 +32,10 @@
 | 配置项 | 值 |
 |---|---|
 | 渠道类型 | `Task Plugin`（任务插件，类型 61） |
-| 插件 | `workbuddy-kling` |
+| 插件 | `workbuddy-video` |
 | Base URL | WorkBuddy 地址，例如 `http://wb-proxy:8788` |
 | 密钥 | **WorkBuddy 看板创建的 API Key**，不是 new-api 客户端令牌 |
-| 模型 | `kling-video-v3` |
+| 模型 | `minimax-video-h3`、`kling-video-v3` |
 
 Base URL 按 new-api 实际运行环境填写：
 
@@ -56,7 +56,7 @@ curl -X POST "$NEW_API_BASE_URL/v1/videos" \
   -H "Authorization: Bearer $NEW_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kling-video-v3",
+    "model": "minimax-video-h3",
     "prompt": "一只猫在阳光下的窗边伸懒腰，镜头缓慢推进",
     "seconds": 5,
     "size": "1280x720"
