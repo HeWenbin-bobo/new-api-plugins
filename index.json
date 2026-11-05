@@ -3,8 +3,8 @@
   "name": "HeWenbin AI Toolchain",
   "plugins": [
     {
-      "key": "workbuddy-video",
-      "name": "WorkBuddy Video",
+      "key": "workbuddy-video-hub",
+      "name": "WorkBuddy Video Hub",
       "icon": "Kling.Color",
       "description": {
         "en": "Video generation through a workbuddy2api-hub gateway",
@@ -23,12 +23,12 @@
           ]
         }
       ],
-      "latest": "1.1.0",
+      "latest": "1.2.0",
       "versions": [
         {
-          "version": "1.1.0",
-          "path": "video_wb2api_newapi/plugin.js",
-          "sha256": "3aceb01981e6a3c6b60accf10375b805b555fea5a7ad3cac67478c110e893a67",
+          "version": "1.2.0",
+          "path": "video_wb2api_hub_newapi/plugin.js",
+          "sha256": "9bfee89c5e9ce129f23c3b45f48efac3b9111855553671ff4ba1601c4a308a32",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:8788"

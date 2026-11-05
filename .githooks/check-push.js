@@ -7,7 +7,7 @@ const ZERO = '0'.repeat(40);
 const LIMIT = 5 * 1024 * 1024;
 const ARCHIVE = /\.(?:zip|7z|rar|tar|tgz|gz|bz2|xz|zst|lz4|lz|lzma|jar|war|apk|iso|cab|cpio|arj|lzh|ace)$/i;
 const RELEASE_ZIPS = new Set([
-  'video_wb2api_newapi/video_wb2api_newapi.zip',
+  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
   'jihuarst-image/jihuarst-image.zip',
   'jihuarst-video/jihuarst-video.zip',
   'zaiwen-image-generation/zaiwen-image-generation.zip',

@@ -10,7 +10,7 @@ import test from 'node:test';
 const checker = fileURLToPath(new URL('./check-push.js', import.meta.url));
 const fakeSecret = `fixture-${'x'.repeat(32)}-not-a-real-credential`;
 const releaseZips = [
-  'video_wb2api_newapi/video_wb2api_newapi.zip',
+  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
   'jihuarst-image/jihuarst-image.zip',
   'jihuarst-video/jihuarst-video.zip',
   'zaiwen-image-generation/zaiwen-image-generation.zip',
@@ -248,7 +248,7 @@ test('accepts the five audited release ZIPs with stored and deflated entries', (
 
 test('rejects archives outside the exact release allowlist', (t) => {
   const cwd = fixture(t);
-  for (const path of ['jihuarst-image/other.zip', 'kling_wb2api_newapi/kling_wb2api_newapi.zip', 'unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.2.0.zip', 'bundle.7z']) {
+  for (const path of ['jihuarst-image/other.zip', 'video_wb2api_newapi/video_wb2api_newapi.zip', 'unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.2.0.zip', 'bundle.7z']) {
     writeZip(cwd, path, makeZip([{ name: 'README.md', data: 'safe\n' }]));
     git(cwd, ['add', '-f', path]);
   }

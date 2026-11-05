@@ -26,9 +26,9 @@ const driverContext = (requestBody) => ({
 
 test('manifest declares the OpenAI video protocol without a channel override', () => {
   assert.equal(meta.apiVersion, 1);
-  assert.equal(meta.key, 'workbuddy-video');
-  assert.equal(meta.name, 'WorkBuddy Video');
-  assert.equal(meta.version, '1.1.0');
+  assert.equal(meta.key, 'workbuddy-video-hub');
+  assert.equal(meta.name, 'WorkBuddy Video Hub');
+  assert.equal(meta.version, '1.2.0');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:8788');
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
   assert.equal(meta.fetchMode, 'per_task');

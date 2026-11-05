@@ -14,7 +14,7 @@
 *.tgz
 unified-web-mcp/unified-web-mcp-package/*
 # Only these five reviewed client distributions are tracked.
-!video_wb2api_newapi/video_wb2api_newapi.zip
+!video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip
 !jihuarst-image/jihuarst-image.zip
 !jihuarst-video/jihuarst-video.zip
 !zaiwen-image-generation/zaiwen-image-generation.zip

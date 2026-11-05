@@ -4,9 +4,9 @@
 
 ## 当前基线
 
-- 当前分支：`main`；已发布基线：`6098964 docs: record project progress and maintenance rules`。
-- `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 记录项目状态及长期维护规则。
-- 已确认 GitHub 文件树与本地提交一致，旧 `kling_wb2api_newapi/` 不再存在于当前版本。
+- 当前分支：`main`；已发布基线：`3a24780 docs: clarify skill contracts and live video verification`。
+- `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
+- `3a24780` 已推送至 `origin/main`。六个变更文件及 `index.json` 的 GitHub Raw URL 均返回 HTTP 200，内容与提交逐字节一致；旧 `kling_wb2api_newapi/` 不再存在于当前版本。
 - 已发布的 `index.json` 和 `video_wb2api_newapi/plugin.js` 原始 URL 返回 HTTP 200，源码 SHA-256 与索引一致。
 - 上述发布事实对应 2026-11-05 的检查，不代表后续提交也已发布。开始新工作前必须重新检查 Git 状态和远端。
 
@@ -14,9 +14,9 @@
 
 | 项目 | 当前状态 | 最近的验证范围 |
 |---|---|---|
-| `video_wb2api_newapi/` | WorkBuddy Video 1.1.0，key 为 `workbuddy-video`；依次声明 `minimax-video-h3`、`kling-video-v3` | 源码与干净解压 ZIP 各 14/14 离线测试通过 |
-| `jihuarst-image/` | 完整保存全部请求图片后才成功；单组合失败后继续其余选定组合 | 源码与干净解压 ZIP 各 54/54 离线测试通过 |
-| `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改脚本 | 源码 64/64 离线测试通过；2026-11-05 在 New API 更新插件后，通过固定 HTTPS 入口分别完成两个模型的付费端到端实测 |
+| `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.2.0，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；依次声明 `minimax-video-h3`、`kling-video-v3` | 本次源码与干净解压 ZIP 各 14/14 离线测试通过 |
+| `jihuarst-image/` | 完整保存全部请求图片后才成功；参数表区分请求字段、客户端行为和后处理 | 更新后 ZIP 干净解压 54/54 离线测试通过 |
+| `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改脚本 | 更新后 ZIP 干净解压 64/64 离线测试通过；2026-11-05 在 New API 更新插件后，通过固定 HTTPS 入口分别完成两个模型的付费端到端实测 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；五 ZIP 统一安全审计已覆盖其归档 |
 | `unified-web-mcp/` | 0.1.0；本轮未改动 | 本轮未重新运行 MCP 测试；历史状态见项目内 `PROJECT_MEMORY.md` |
 
@@ -32,6 +32,12 @@
 6. 本轮改动经独立 Opus 审查通过，无 CRITICAL、HIGH 或 MEDIUM 问题。
 7. 2026-11-05，用户确认 New API 上游已更新 WorkBuddy Video 插件后，分别固定 `https://api.jihuarst.top` 与单一模型进行付费验证。MiniMax H3 和 Kling V3 均完成提交、同任务轮询、MP4 下载及本地 `ftyp` 签名校验，每个模型只创建一个任务。请求为 5 秒、1280x720，未触发模型或入口回退。
 8. 本地验证产物保存在被忽略的 `.omc/artifacts/live-video-20261105/`，不进入 Git 或发布 ZIP。MiniMax 文件为 1,182,697 字节，SHA-256 `def30e58a0d118d69b62c703b4dee3c7978ef84f1ead7d08dbfcaa45f8af1dce`；Kling 文件为 4,330,324 字节，SHA-256 `dcb05b191bc96fa38ae815f5c63946a2cf144d1b469fcb2dc3b6090cae002e87`。
+9. 根据用户提供的第三方生图 API 参考文档，改进图片、视频 Skill 的参数说明，区分接口请求、客户端处理与本地交付；第三方部署行为不作为 Jihuarst 能力证据。未新增 Responses API、流式生图或通用服务商框架。
+10. `3a24780` 发布前验证：图片、视频更新 ZIP 的干净解压离线测试分别为 54/54、64/64，推送保护回归 38/38；归档条目、源码一致性、凭据、文档链接、JSON 与插件源码哈希检查通过。
+
+## 当前工作区
+
+- 将视频插件目录、key 和显示名分别重命名为 `video_wb2api_hub_newapi/`、`workbuddy-video-hub`、`WorkBuddy Video Hub`，明确仅适用于 wb2api Hub，不兼容 Panel。版本升为 1.2.0；索引、ZIP、文档与发布保护白名单同步更新。历史发布事实保留旧路径作为当时记录。
 
 ## 已知边界与待办
 

@@ -4,7 +4,7 @@
 
 This is one public repository containing five independently distributed tools:
 
-- `video_wb2api_newapi/`: a New API Task Plugin, distributed through the root `index.json`.
+- `video_wb2api_hub_newapi/`: a New API Task Plugin for **wb2api Hub only**, distributed through the root `index.json`. It is not compatible with wb2api Panel.
 - `jihuarst-image/`: an Agent Skill, installed into a client's skills directory.
 - `jihuarst-video/`: an Agent Skill, installed into a client's skills directory.
 - `zaiwen-image-generation/`: an Agent Skill, installed into a client's skills directory.
@@ -22,23 +22,23 @@ Only the Task Plugin belongs in the New API marketplace. Never add Skills or MCP
 
 ## Repository and installation rules
 
-- Keep the current five top-level project directories. Do not move `video_wb2api_newapi/plugin.js` to the repository root.
+- Keep the current five top-level project directories. Do not move `video_wb2api_hub_newapi/plugin.js` to the repository root.
 - New API does **not** recursively scan GitHub repositories. The root `index.json` is the marketplace entry point and must list every installable Task Plugin explicitly.
 - Add a source using the raw index URL, not the repository homepage:
 
   `https://raw.githubusercontent.com/HeWenbin-bobo/new-api-plugins/main/index.json`
 
-- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; the current path is `video_wb2api_newapi/plugin.js`.
+- A version `path` is resolved relative to the index URL. Keep it relative and on the same origin; the current path is `video_wb2api_hub_newapi/plugin.js`.
 - Preserve the New API-selected model in upstream requests (`ctx.upstreamModel || ctx.model`). Adding a model requires synchronized manifest, protocol, index, documentation, and forwarding-test updates; do not silently substitute another model.
 - New API requires Task Plugin API v1 support. Plugin installation and channel configuration are administrator trust decisions; review source before activation.
 - Installing the New API plugin does not install the Skills or MCP server. Follow each project's own README or SKILL.md for those.
 
 ## Plugin release rules
 
-When releasing `workbuddy-video`:
+When releasing `workbuddy-video-hub`:
 
 1. Run the plugin's offline tests.
-2. Increment `meta.version` in `video_wb2api_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
+2. Increment `meta.version` in `video_wb2api_hub_newapi/plugin.js` and the corresponding `package.json` version using semantic versioning.
 3. Replace `plugins[0].versions` in `index.json` with a single entry for the new release, removing superseded versions. Never reuse an existing version number for different source.
 4. Set `latest` to the new version and update `sha256` to the lowercase SHA-256 hash of the exact LF-normalized `plugin.js` bytes. `.gitattributes` preserves this format across Windows checkouts.
 5. Keep `key`, `models`, `protocols`, `minApiVersion`, and `kind` consistent with the plugin manifest and API contract.
@@ -90,7 +90,7 @@ The marketplace intentionally exposes only the latest release through the single
 - For asynchronous Jihuarst Video, do not create a replacement paid task after obtaining a task ID merely because polling has a nonterminal error or a completed task cannot be downloaded. Preserve the original task information and explicit failure. Do not transfer the image Skill's exhaustive-retry policy to video tasks.
 - When adding or changing cache or resume behavior, bind entries to the source bytes and behavior-affecting configuration, reject stale or mismatched results, and write replacement state atomically so failure preserves the last valid result. Test both first-time creation and rejection of an outdated result.
 - After every upgrade to a distributable project, regenerate its client ZIP without a separate reminder; packaging is part of the upgrade, not an optional follow-up:
-  - `video_wb2api_newapi/` → `video_wb2api_newapi/video_wb2api_newapi.zip`
+  - `video_wb2api_hub_newapi/` → `video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip`
   - `jihuarst-image/` → `jihuarst-image/jihuarst-image.zip`
   - `jihuarst-video/` → `jihuarst-video/jihuarst-video.zip`
   - `zaiwen-image-generation/` → `zaiwen-image-generation/zaiwen-image-generation.zip`
@@ -98,7 +98,7 @@ The marketplace intentionally exposes only the latest release through the single
   Track only these five exact ZIP paths in Git; all other archives remain blocked. Use an explicit file allowlist, verify a clean extraction passes the project's offline tests, compare archived files byte for byte with the current source, and run the archive-content credential and safety audit before staging.
 - Run tests from each project's own directory:
   - Repository push guard: `node --test .githooks/check-push.test.js` (run from the repository root)
-  - `video_wb2api_newapi/`: `npm test`
+  - `video_wb2api_hub_newapi/`: `npm test`
   - `jihuarst-image/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `jihuarst-video/`: `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v`
   - `unified-web-mcp/`: `npm test` (Node.js 24+; use `npm ci` in a clean checkout)

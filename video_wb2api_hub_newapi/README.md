@@ -1,6 +1,8 @@
-# WorkBuddy Video
+# WorkBuddy Video Hub
 
-将 new-api 的 OpenAI Video 请求转发到 workbuddy2api-hub，使用 `minimax-video-h3` 或 `kling-video-v3` 生成视频。
+将 new-api 的 OpenAI Video 请求转发到 **workbuddy2api-hub**，使用 `minimax-video-h3` 或 `kling-video-v3` 生成视频。
+
+**本插件仅适用于 Hub 版，不兼容接口不同的 wb2api Panel 版。**
 
 - 对外接口：`POST /v1/videos`、`GET /v1/videos/{id}`、`GET /v1/videos/{id}/content`
 - 上游接口：WorkBuddy `POST /v1/videos`、`GET /v1/videos/{id}` 及其签名内容地址
@@ -23,7 +25,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-video`，版本为 `1.1.0`。
+3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.2.0`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 
@@ -32,7 +34,7 @@
 | 配置项 | 值 |
 |---|---|
 | 渠道类型 | `Task Plugin`（任务插件，类型 61） |
-| 插件 | `workbuddy-video` |
+| 插件 | `workbuddy-video-hub` |
 | Base URL | WorkBuddy 地址，例如 `http://wb-proxy:8788` |
 | 密钥 | **WorkBuddy 看板创建的 API Key**，不是 new-api 客户端令牌 |
 | 模型 | `minimax-video-h3`、`kling-video-v3` |
