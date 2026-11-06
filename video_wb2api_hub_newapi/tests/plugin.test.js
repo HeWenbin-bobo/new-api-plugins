@@ -28,7 +28,7 @@ test('manifest declares the OpenAI video protocol without a channel override', (
   assert.equal(meta.apiVersion, 1);
   assert.equal(meta.key, 'workbuddy-video-hub');
   assert.equal(meta.name, 'WorkBuddy Video Hub');
-  assert.equal(meta.version, '1.3.1');
+  assert.equal(meta.version, '1.3.2');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:8788');
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
   assert.equal(meta.fetchMode, 'per_task');
@@ -105,11 +105,53 @@ test('uses the redirected upstream model and falls back without a redirect', () 
   assert.equal(buildSubmitRequest({ ...context, upstreamModel: '' }).body.model, 'kling-video-v3');
 });
 
+test('preserves gateway path prefixes for submit, query, and content', () => {
+  const baseUrl = 'https://gateway.invalid/proxy/';
+  assert.equal(buildSubmitRequest({ ...driverContext({ prompt: 'A cat' }), baseUrl }).url,
+    'https://gateway.invalid/proxy/v1/videos');
+  assert.equal(buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+    'https://gateway.invalid/proxy/v1/videos/task');
+  assert.equal(buildContentRequest({ artifactKey: 'video', baseUrl, apiKey: 'test-key', upstreamTaskId: 'upstream' }).url,
+    'https://gateway.invalid/proxy/v1/videos/upstream/content');
+});
+
 test('rejects malformed channel base URLs before sending a privileged request', () => {
-  for (const baseUrl of ['not-a-url', 'file:///tmp/hub', 'https://user:pass@hub.invalid', 'http://hub.invalid?x=1']) {
+  for (const baseUrl of [
+    'not-a-url', 'file:///tmp/hub', 'https://user:pass@hub.invalid', 'http://hub.invalid?x=1',
+    'https://hub.invalid:443abc', 'https://hub.invalid:443:80', 'https://hub.invalid:', 'https://[::1',
+    'https://hub.invalid:65536', 'https://hub.invalid:999999999999', 'https://[::::]/', 'https://[1.2.3.4]/',
+    'https://[1:2:3:4:5:6:7::8]/', 'https://[1:2:3:4:5:6::192.0.2.1]/',
+  ]) {
     assert.throws(() => buildSubmitRequest({ ...driverContext({ prompt: 'A cat' }), baseUrl }), /base url/);
     assert.throws(() => buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }), /base url/);
     assert.throws(() => buildContentRequest({ artifactKey: 'video', baseUrl, apiKey: 'test-key', upstreamTaskId: 'task' }), /base url/);
+  }
+});
+
+test('accepts structurally valid IPv6 channel addresses', () => {
+  for (const host of ['::', '::1', '2001:db8::1', '::ffff:192.0.2.128', '2001:db8::192.0.2.1']) {
+    const baseUrl = `https://[${host}]:443/proxy/`;
+    assert.equal(buildSubmitRequest({ ...driverContext({ prompt: 'A cat' }), baseUrl }).url,
+      `https://[${host}]:443/proxy/v1/videos`);
+    assert.equal(buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+      `https://[${host}]:443/proxy/v1/videos/task`);
+    assert.equal(buildContentRequest({ artifactKey: 'video', baseUrl, apiKey: 'test-key', upstreamTaskId: 'task' }).url,
+      `https://[${host}]:443/proxy/v1/videos/task/content`);
+  }
+});
+
+test('builds requests when the moejs runtime has no URL constructor', () => {
+  const original = globalThis.URL;
+  try {
+    globalThis.URL = undefined;
+    assert.equal(buildSubmitRequest(driverContext({ prompt: 'A cat' })).url,
+      'http://127.0.0.1:8788/v1/videos');
+    assert.equal(buildQueryRequest({ baseUrl: meta.baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+      'http://127.0.0.1:8788/v1/videos/task');
+    assert.equal(buildContentRequest({ artifactKey: 'video', baseUrl: meta.baseUrl, apiKey: 'test-key', upstreamTaskId: 'task' }).url,
+      'http://127.0.0.1:8788/v1/videos/task/content');
+  } finally {
+    globalThis.URL = original;
   }
 });
 

@@ -29,7 +29,7 @@ test('manifest declares Panel identity, models, protocol, and COS hosts', () => 
   assert.equal(meta.apiVersion, 1);
   assert.equal(meta.key, 'workbuddy-panel-video');
   assert.equal(meta.name, 'WorkBuddy Panel Video');
-  assert.equal(meta.version, '1.1.1');
+  assert.equal(meta.version, '1.1.2');
   assert.equal(meta.baseUrl, 'http://127.0.0.1:7863');
   assert.deepEqual(meta.allowedHosts, [COS_HOST]);
   assert.deepEqual(meta.models, ['minimax-video-h3', 'kling-video-v3']);
@@ -129,8 +129,21 @@ test('parses the task id and queries the Panel task endpoint', () => {
   });
 });
 
+test('preserves gateway path prefixes for submit and query', () => {
+  const baseUrl = 'https://gateway.invalid/proxy/';
+  assert.equal(buildSubmitRequest({ ...driverContext({ prompt: 'A bird' }), baseUrl }).url,
+    'https://gateway.invalid/proxy/v1/videos/generations');
+  assert.equal(buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+    'https://gateway.invalid/proxy/v1/videos/task');
+});
+
 test('rejects malformed channel base URLs and missing models before submission', () => {
-  for (const baseUrl of ['not-a-url', 'file:///tmp/panel', 'https://user:pass@panel.invalid', 'http://panel.invalid?x=1']) {
+  for (const baseUrl of [
+    'not-a-url', 'file:///tmp/panel', 'https://user:pass@panel.invalid', 'http://panel.invalid?x=1',
+    'https://panel.invalid:443abc', 'https://panel.invalid:443:80', 'https://panel.invalid:', 'https://[::1',
+    'https://panel.invalid:65536', 'https://panel.invalid:999999999999', 'https://[::::]/', 'https://[1.2.3.4]/',
+    'https://[1:2:3:4:5:6:7::8]/', 'https://[1:2:3:4:5:6::192.0.2.1]/',
+  ]) {
     assert.throws(() => buildSubmitRequest({ ...driverContext({ prompt: 'A bird' }), baseUrl }), /base url/);
     assert.throws(() => buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }), /base url/);
   }
@@ -169,6 +182,30 @@ test('redacts credentials and signed URLs from bounded failure reasons', () => {
   assert.ok(result.reason.includes('[REDACTED]'));
 });
 
+test('accepts structurally valid IPv6 channel addresses', () => {
+  for (const host of ['::', '::1', '2001:db8::1', '::ffff:192.0.2.128', '2001:db8::192.0.2.1']) {
+    const baseUrl = `https://[${host}]:443/proxy/`;
+    assert.equal(buildSubmitRequest({ ...driverContext({ prompt: 'A bird' }), baseUrl }).url,
+      `https://[${host}]:443/proxy/v1/videos/generations`);
+    assert.equal(buildQueryRequest({ baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+      `https://[${host}]:443/proxy/v1/videos/task`);
+  }
+});
+
+test('builds requests when the moejs runtime has no URL constructor', () => {
+  const original = globalThis.URL;
+  try {
+    globalThis.URL = undefined;
+    assert.equal(buildSubmitRequest(driverContext({ prompt: 'A bird' })).url,
+      'http://127.0.0.1:7863/v1/videos/generations');
+    assert.equal(buildQueryRequest({ baseUrl: meta.baseUrl, apiKey: 'test-key', taskId: 'task' }).url,
+      'http://127.0.0.1:7863/v1/videos/task');
+    assert.equal(buildContentRequest({ artifactKey: 'video', data: { url: COS_URL } }).url, COS_URL);
+  } finally {
+    globalThis.URL = original;
+  }
+});
+
 test('extracts COS URLs from top-level, videos, and data result shapes', () => {
   for (const data of [
     { url: COS_URL }, { videos: [{ url: COS_URL }] }, { data: [{ url: COS_URL }] },
@@ -190,6 +227,12 @@ test('rejects untrusted, non-HTTPS, credentialed, and malformed result URLs', ()
     `https://${COS_HOST}:8443/video.mp4`,
     `https://${COS_HOST}.attacker.invalid/video.mp4`,
     `https://user:pass@${COS_HOST}/video.mp4`,
+    `https://${COS_HOST}./video.mp4`,
+    `https://${COS_HOST}%2fattacker.invalid/video.mp4`,
+    `https://${COS_HOST}//video.mp4`,
+    `https://${COS_HOST}/a//b`,
+    `https://${COS_HOST}/video.mp4//`,
+    `https://${COS_HOST}/video.mp4#fragment`,
     '/relative/video.mp4',
   ]) {
     assert.throws(() => buildContentRequest({ artifactKey: 'video', data: { url } }), /not allowed|absolute HTTPS/, url);

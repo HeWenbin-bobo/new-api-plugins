@@ -6,7 +6,7 @@
 
 ## 版本
 
-`1.1.1`
+`1.1.2`
 
 ## 支持模型
 
@@ -25,7 +25,7 @@
 
 插件会：
 
-1. 给裸模型名补上 `cn:` 前缀（Panel 的模型命名约定；Kling 的真实任务未实测）；
+1. 给裸模型名补上 `cn:` 前缀（Panel 的模型命名约定；2026-11-06 用户报告 MiniMax H3 与 Kling V3 均已实测）；
 2. 固定 `wait=false`，使 New API 负责轮询；
 3. 从顶层 `url`、`data.data[0].url` 或 `data.videos[0].url` 读取完成后的签名直链；
 4. 下载 COS 视频时不携带 Panel API key；
@@ -49,7 +49,7 @@
 workbuddy-panel-video
 ```
 
-版本为 `1.1.1`。数据库中的 `source` 必须是**完整 JS 源码**，不能只存 `file:///...` 路径。安装后检查运行日志没有 `compile task plugin` 错误。
+版本为 `1.1.2`。数据库中的 `source` 必须是**完整 JS 源码**，不能只存 `file:///...` 路径。安装后检查运行日志没有 `compile task plugin` 错误。
 
 ### 3. 创建渠道
 
@@ -63,7 +63,7 @@ workbuddy-panel-video
 
 ### 4. SSRF 与 COS 白名单
 
-插件的 `allowedHosts` 只包含本次实测的腾讯云 COS 域名；`buildContentRequest` 也会在插件内再次强制校验：只允许该域名的 HTTPS 绝对地址，拒绝其他主机、非默认端口、用户名密码及相对地址。`allowedHosts` 声明不能替代代码级校验。
+插件的 `allowedHosts` 只包含本次实测的腾讯云 COS 域名；`buildContentRequest` 也会在插件内再次强制校验：只允许该域名的 HTTPS 绝对地址，拒绝其他主机、非默认端口、用户名密码、双斜杠路径及相对地址。`allowedHosts` 声明不能替代代码级校验。1.1.2 起渠道和 COS 地址均使用 moejs 兼容的受限字符串解析，不依赖 `URL` 构造器。
 
 ```text
 aigc-output-video-1326893053.cos.ap-guangzhou.myqcloud.com
@@ -122,7 +122,14 @@ GET /v1/videos/{task_id}/content
 - New API `/content` 返回 HTTP 200、759,484 字节、`video/mp4`；
 - `ftyp` 文件签名校验通过。
 
-没有在本次适配中额外创建 Kling 测试任务，因此不声称 Kling 已完成同样的实测。
+没有在本次适配中额外创建 Kling 测试任务；以下 2026-11-06 的 Kling 结果来自用户提供的实测报告。
+
+2026-11-06，用户报告在 New API rc.48 + 升级后的 Panel 上，MiniMax H3 和 Kling V3 的真实任务与 MP4 下载均成功：
+
+- MiniMax H3：MP4 下载 HTTP 200、947,341 字节，`ftyp` 校验通过；
+- Kling V3：MP4 下载 HTTP 200、4,313,869 字节，`ftyp` 校验通过。
+
+这些结果对应特定参数和时间的用户实测快照，不代表本次又创建了付费任务。最终 1.1.2 额外补齐的 COS 兼容解析目前只经过离线测试，尚未重新做真实任务验证。
 
 ## 安全说明
 

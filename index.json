@@ -23,12 +23,12 @@
           ]
         }
       ],
-      "latest": "1.3.1",
+      "latest": "1.3.2",
       "versions": [
         {
-          "version": "1.3.1",
+          "version": "1.3.2",
           "path": "video_wb2api_hub_newapi/plugin.js",
-          "sha256": "60aa2839066b2466ffe6fa73caee45900aa1074144661b83cfa7e04bceec361a",
+          "sha256": "88a5829d72cdae9041a90a36e3def72c2e3aa6919df483540cb896eecda4d48f",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:8788"
@@ -56,12 +56,12 @@
           ]
         }
       ],
-      "latest": "1.1.1",
+      "latest": "1.1.2",
       "versions": [
         {
-          "version": "1.1.1",
+          "version": "1.1.2",
           "path": "video_wb2api_panel_newapi/plugin.js",
-          "sha256": "8cbb7ab64ab6070f61dc03d0be9bc5f8f72b36468a85a660ec55dc9ee4dc0b8d",
+          "sha256": "22bf7fea88956fabf72e2ec2635fcc6c47922e1c5de5e2be66117a9316758daf",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://127.0.0.1:7863"

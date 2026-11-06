@@ -1,10 +1,10 @@
 # 项目进度
 
-> 最后更新：2026-11-05。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
+> 最后更新：2026-11-06。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
 
 ## 当前基线
 
-- 当前分支：`main`；已发布基线：`503da35 feat: add Panel video plugin and harden gateway requests`。该提交已推送至 `origin/main`，Hub 1.3.0、Panel 1.1.1 及两个 ZIP 的 Raw URL 均返回 HTTP 200。
+- 当前分支：`main`；已发布基线：`63ff735 fix: redact video task failure details`。该提交已推送至 `origin/main`，Hub 1.3.1、Panel 1.1.1 及两个 ZIP 的 Raw URL 均返回 HTTP 200。
 - `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
 - `726dfec` 将视频插件重命名为 Hub 专用：目录 `video_wb2api_hub_newapi/`、key `workbuddy-video-hub`、显示名 `WorkBuddy Video Hub`、版本 1.2.0；同步 `index.json`、文档、ZIP 与发布保护白名单，共 14 个文件。
 - `3a24780` 与 `726dfec` 均已推送至 `origin/main`。`726dfec` 推送后远端文件树与本地提交一致；新 `index.json`、`video_wb2api_hub_newapi/plugin.js`、`video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip` 的 GitHub Raw URL 均返回 HTTP 200（分别为 961、8806、9187 字节），旧目录 `video_wb2api_newapi/` 不再存在于当前版本。
@@ -15,8 +15,8 @@
 
 | 项目 | 当前状态 | 最近的验证范围 |
 |---|---|---|
-| `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.3.1，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；校验渠道地址并脱敏失败原因 | 源码与干净解压 ZIP 各 17/17 离线测试通过 |
-| `video_wb2api_panel_newapi/` | WorkBuddy Panel Video 1.1.1，key 为 `workbuddy-panel-video`；仅用于 wb2api Panel；强制 COS HTTPS 白名单、不向 COS 转发密钥并脱敏失败原因 | 源码与干净解压 ZIP 各 15/15 离线测试通过；Kling 真实 Panel 任务未实测 |
+| `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.3.2，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；moejs 兼容地址解析、错误脱敏 | 源码与干净解压 ZIP 各 20/20 离线测试通过；用户报告 2026-11-06 两个模型实测成功 |
+| `video_wb2api_panel_newapi/` | WorkBuddy Panel Video 1.1.2，key 为 `workbuddy-panel-video`；仅用于 wb2api Panel；moejs 兼容渠道/COS 解析、错误脱敏、不向 COS 转发密钥 | 源码与干净解压 ZIP 各 18/18 离线测试通过；用户报告 2026-11-06 两个模型实测成功 |
 | `jihuarst-image/` | 完整保存全部请求图片后才成功；参数表区分请求字段、客户端行为和后处理 | 更新后 ZIP 干净解压 54/54 离线测试通过 |
 | `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改脚本 | 更新后 ZIP 干净解压 64/64 离线测试通过；2026-11-05 在 New API 更新插件后，通过固定 HTTPS 入口分别完成两个模型的付费端到端实测 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；五 ZIP 统一安全审计已覆盖其归档 |
@@ -43,18 +43,20 @@
 - 验证：插件源码 14/14、干净解压 ZIP 14/14、发布保护 38/38 离线测试通过；`node --check plugin.js`、`git diff --check`、索引 JSON/版本/哈希一致性检查通过；推送前 `check-push.js` 扫描 58 个 blob 通过。New API 市场实机安装未验证。
 - SSRF 审查结论（2026-11-05，后台安全审查 MEDIUM）：插件只向渠道管理员配置的 `ctx.baseUrl` 发请求，`input_reference`/`image`/`reference_images` 按 hub 原生 `/v1/videos` 契约透传，实际抓取这些 URL 的是 wb2api-hub，插件未新增攻击面。若需加固，应在 hub 侧对图片 URL 做 http/https、DNS 解析与私网/环回/链路本地地址拒绝、逐跳重定向重校验（如 `validateRemoteImageUrl()`），而非在插件层实现。
 
-## 当前工作区：错误脱敏与模型契约验证
+## 当前工作区：moejs 实测兼容更新
 
-- Hub 升级为 1.3.1，Panel 升级为 1.1.1。两版任务失败原因统一限制为 300 字符，替换 HTTP(S) URL、明显凭据字段及控制字符，保留简短诊断。
-- 新增模型重定向、无重定向回退和用量一致性测试。现有 `ctx.upstreamModel || ctx.model` 行为正确，未修改模型转发逻辑，也未合并 Hub/Panel 协议。
-- 验证：Hub 源码及干净解压 ZIP 各 17/17，Panel 源码及干净解压 ZIP 各 15/15 离线测试通过；语法、索引 JSON/版本/哈希、ZIP 条目与源码一致性、发布保护回归通过。本改动尚未提交或推送；未进行真实付费调用或 New API 市场实机安装。
+- 用户提供 `workbuddy-video-hub-current-20261106.zip` 和 `workbuddy-panel-video-current-20261106.zip`，核心修改是用受限字符串解析替代 moejs 不支持的 `new URL()`。
+- Hub 升级为 1.3.2，Panel 升级为 1.1.2；不复用已发布版本号。保留现有错误脱敏、模型重定向和协议边界，不直接采用实测 ZIP 对完整文档及测试的删减。
+- Panel 的 COS `contentUrl()` 同步移除 `URL` 依赖，保留 HTTPS 精确域名、端口、凭据和路径边界检查；否则提交修复后下载仍会在 moejs 失败。
+- 用户报告 2026-11-06 两个插件的 MiniMax H3 与 Kling V3 真实任务、MP4 下载及 `ftyp` 校验均成功；这是用户提供的实测报告，本次未创建付费任务。
+- 验证：Hub 源码及干净解压 ZIP 各 20/20，Panel 源码及干净解压 ZIP 各 18/18 离线测试通过，包含无 `URL` 构造器、渠道路径前缀、合法及非法 IPv6、非法端口和 COS 路径边界的回归用例。合法压缩 IPv6 用例先在旧实现上按预期失败，再修正校验；最终 IPv6 判断经独立审查无发现，但未在真实 moejs 运行时验证。本改动尚未提交或推送。
 
 ## 已知边界与待办
 
 - **New API 市场安装未实测。** 已验证的是索引、源码 URL、哈希及离线契约，不应把它描述成真实 New API 安装成功。
 - **历史视频下载故障已在后续指定路径复测通过，不代表上游问题已根治。** 2026-11-04 曾观察到两个模型的任务完成后返回 MP4 URL 为 404、content/artifact 代理为 502；2026-11-05 固定 HTTPS 入口及单模型的测试均成功交付 MP4。其他入口、参数与后续服务稳定性仍不在此次验证范围内。
 - **视频媒体质量未完整验收。** 当前环境没有 `ffprobe`；只验证了下载字节与 MP4 `ftyp` 签名，没有验证编码参数、精确时长、逐帧解码或视觉内容。
-- **全历史 ZIP 扫描存在已知阻断。** `node .githooks/check-push.js --all` 会按历史路径识别旧 `kling_wb2api_newapi/kling_wb2api_newapi.zip`，并因其不再是当前白名单路径而失败。这属于已移除历史产物的路径策略限制，不是本次普通推送失败；普通推送的增量检查已通过。不得为绕过它而弱化当前规则或擅自改写历史。
+- **全历史 ZIP 扫描存在已知阻断。** `node .githooks/check-push.js --all` 会按历史路径识别旧 `kling_wb2api_newapi/kling_wb2api_newapi.zip` 与 `video_wb2api_newapi/video_wb2api_newapi.zip`，并因其不再是当前白名单路径而失败。这属于已移除历史产物的路径策略限制，不是本次普通推送失败；普通推送的增量检查已通过。不得为绕过它而弱化当前规则或擅自改写历史。
 - `gh` CLI 在当时的 Windows 环境不可用，远端文件树通过 GitHub API 核对；不要假设所有机器都安装了 `gh`。
 - 当前没有已批准的后续功能实现任务。新增真实媒体付费测试、New API 实机安装验证及其他入口或参数的视频排查，应分别明确范围和成本后再做。
 - 根目录的 `可乐生图_API接口参数说明.docx` 是用户提供的本地只读参考，尚未纳入 Git。它描述的是另一部署的前端行为，不能作为 Jihuarst 参数能力的直接证据；若需长期保存，应先决定是否公开及如何去除敏感内容。

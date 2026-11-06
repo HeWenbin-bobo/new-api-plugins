@@ -17,7 +17,7 @@
 2. 在看板中启用**媒体能力/媒体模块**，并确认可用模型目录包含 `minimax-video-h3` 和 `kling-video-v3`。
 3. 在看板「设置」中创建 API Key，并确保该 Key 的模型限制和出口配置允许此视频模型。
 
-插件向上游提交的地址是 `{Base URL}/v1/videos`，因此 new-api 渠道中的 Base URL 不要带 `/v1`。Base URL 必须是绝对 HTTP(S) 地址，不允许嵌入用户名密码、查询参数或片段；下载请求始终与渠道地址同源。
+插件向上游提交的地址是 `{Base URL}/v1/videos`，因此 new-api 渠道中的 Base URL 不要带 `/v1`。Base URL 必须是绝对 HTTP(S) 地址，不允许嵌入用户名密码、查询参数或片段；下载请求始终与渠道地址同源。1.3.2 起使用 moejs 兼容的受限字符串解析，不再依赖 `URL` 构造器。
 
 ## 2. 上传插件
 
@@ -25,7 +25,7 @@
 
 1. 打开任务插件管理页。
 2. 上传本目录的 [`plugin.js`](./plugin.js)，保存并激活。
-3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.3.1`。
+3. 插件 key 为 `workbuddy-video-hub`，版本为 `1.3.2`。
 
 后续修改源码时请递增 `meta.version` 后上传新版本；new-api 不接受同 key、同版本但内容不同的源码。
 
@@ -128,4 +128,13 @@ npm test
 node --check plugin.js
 ```
 
-测试使用 Node.js 内置测试框架，不需要安装依赖，不连接 new-api 或 WorkBuddy，不使用真实凭据，也不会产生视频生成费用。覆盖请求转换、multipart 文件占位、鉴权、轮询、状态映射、签名下载、Range 请求及响应渲染。
+测试使用 Node.js 内置测试框架，不需要安装依赖，不连接 new-api 或 WorkBuddy，不使用真实凭据，也不会产生视频生成费用。覆盖请求转换、无 `URL` 构造器的 moejs 环境、模型重定向、multipart 文件占位、鉴权、轮询、错误脱敏、状态映射、签名下载、Range 请求及响应渲染。
+
+## 实测记录
+
+2026-11-06，用户报告在 New API rc.48 + Hub 上，MiniMax H3 和 Kling V3 的真实任务与 MP4 下载均成功：
+
+- MiniMax H3：MP4 下载 HTTP 200、867,127 字节，`ftyp` 校验通过；
+- Kling V3：MP4 下载 HTTP 200、4,602,502 字节，`ftyp` 校验通过。
+
+这是用户提供的实测快照，不代表本次又创建了付费任务，也不保证后续上游永久可用。

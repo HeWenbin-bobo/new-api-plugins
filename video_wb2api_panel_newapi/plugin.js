@@ -16,7 +16,7 @@ export const meta = {
     en: "Video generation through a workbuddy2api-panel gateway",
     zh: "通过 workbuddy2api-panel 网关生成视频",
   },
-  version: "1.1.1",
+  version: "1.1.2",
   author: { name: "Local" },
   baseUrl: "http://127.0.0.1:7863",
   allowedHosts: [...CONTENT_HOSTS],
@@ -128,22 +128,23 @@ function findResultUrl(data, ctx = {}) {
 
 function contentUrl(ctx) {
   // Panel returns a signed COS URL; do not use the Hub-only /content route.
-  // Enforce the allowlist here too: allowedHosts is only a host declaration and
-  // must not be relied upon to turn an upstream URL into an arbitrary fetch.
+  // Parse and enforce the allowlist here without moejs-unsupported URL globals.
   const data = object(ctx.data) || {};
   const resultUrl = findResultUrl(data, ctx);
   if (!resultUrl) throw new Error("panel video result url is empty");
-  let parsed;
-  try {
-    parsed = new URL(resultUrl);
-  } catch {
-    throw new Error("panel video result url must be an absolute HTTPS URL");
-  }
-  if (parsed.protocol !== "https:" || parsed.username || parsed.password ||
-      (parsed.port && parsed.port !== "443") || !CONTENT_HOSTS.has(parsed.hostname)) {
+  const match = /^https:\/\/([^/?#]+)(\/[^?#]*)?(\?[^#]*)?$/.exec(resultUrl);
+  if (!match || (match[2] || "").includes("//")) throw new Error("panel video result url must be an absolute HTTPS URL");
+  const authority = match[1];
+  if (authority.includes("@") || !/^[A-Za-z0-9.-]+(?::\d+)?$/.test(authority)) {
     throw new Error("panel video result url host is not allowed");
   }
-  return parsed.href;
+  const colon = authority.lastIndexOf(":");
+  const hostname = (colon < 0 ? authority : authority.slice(0, colon)).toLowerCase();
+  const port = colon < 0 ? "" : authority.slice(colon + 1);
+  if ((port && port !== "443") || !CONTENT_HOSTS.has(hostname)) {
+    throw new Error("panel video result url host is not allowed");
+  }
+  return resultUrl;
 }
 
 function failureReason(data) {
@@ -155,18 +156,40 @@ function failureReason(data) {
     .replace(/[\x00-\x20\x7f]+/g, " ").trim().slice(0, 300);
 }
 
-function gatewayUrl(baseUrl, path) {
-  let parsed;
-  try {
-    parsed = new URL(baseUrl);
-  } catch {
-    throw new Error("panel base url must be an absolute HTTP(S) URL");
+function validIpv6(host) {
+  if (!/^\[[0-9A-Fa-f:.]+\]$/.test(host)) return false;
+  let address = host.slice(1, -1);
+  if (address.includes(".")) {
+    const colon = address.lastIndexOf(":");
+    const parts = address.slice(colon + 1).split(".");
+    if (parts.length !== 4 || parts.some((part) =>
+      !/^\d{1,3}$/.test(part) || Number(part) > 255 || (part.length > 1 && part.startsWith("0")))) {
+      return false;
+    }
+    address = address.slice(0, colon + 1) + "0:0";
   }
-  if ((parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-      parsed.username || parsed.password || parsed.search || parsed.hash) {
+  const halves = address.split("::");
+  if (halves.length > 2) return false;
+  const groups = halves.flatMap((half) => half ? half.split(":") : []);
+  if (groups.some((group) => !/^[0-9A-Fa-f]{1,4}$/.test(group))) return false;
+  return halves.length === 2 ? groups.length < 8 : groups.length === 8;
+}
+
+function gatewayUrl(baseUrl, path) {
+  // moejs has no browser URL constructor; use deliberately restricted parsing.
+  const raw = text(baseUrl);
+  const match = /^(https?):\/\/([^/?#]+)([/?#].*)?$/.exec(raw);
+  if (!match) throw new Error("panel base url must be an absolute HTTP(S) URL");
+  const scheme = match[1], authority = match[2], suffix = match[3] || "";
+  const parsedAuthority = /^(\[[0-9A-Fa-f:.]+\]|[A-Za-z0-9.-]+)(?::(\d+))?$/.exec(authority);
+  const port = parsedAuthority && parsedAuthority[2];
+  if (authority.includes("@") || !parsedAuthority ||
+      (parsedAuthority[1].startsWith("[") && !validIpv6(parsedAuthority[1])) ||
+      (port && (Number(port) < 1 || Number(port) > 65535)) ||
+      suffix.includes("?") || suffix.includes("#")) {
     throw new Error("panel base url must be an absolute HTTP(S) URL without credentials");
   }
-  return parsed.href.replace(/\/+$/, "") + path;
+  return scheme + "://" + authority + suffix.replace(/\/+$/, "") + path;
 }
 
 function panelSubmitBody(ctx, requestBody) {
