@@ -4,7 +4,7 @@
 
 ## 当前基线
 
-- 当前分支：`main`；已发布基线：`63ff735 fix: redact video task failure details`。该提交已推送至 `origin/main`，Hub 1.3.1、Panel 1.1.1 及两个 ZIP 的 Raw URL 均返回 HTTP 200。
+- 当前分支：`main`；已发布基线：`a3f2a47 chore: rebuild video plugin client archives`，前一提交为 `6800031 fix: support moejs video gateway URLs`。两个提交已推送至 `origin/main`，Hub 1.3.2、Panel 1.1.2、索引、两个插件源码及两个 ZIP 的 Raw URL 均返回 HTTP 200；GitHub 根树及 66 个 blob 条目与本地 `a3f2a47` 完全一致。Raw 索引、源码、ZIP 字节和源码 SHA-256 均与本地提交一致。
 - `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
 - `726dfec` 将视频插件重命名为 Hub 专用：目录 `video_wb2api_hub_newapi/`、key `workbuddy-video-hub`、显示名 `WorkBuddy Video Hub`、版本 1.2.0；同步 `index.json`、文档、ZIP 与发布保护白名单，共 14 个文件。
 - `3a24780` 与 `726dfec` 均已推送至 `origin/main`。`726dfec` 推送后远端文件树与本地提交一致；新 `index.json`、`video_wb2api_hub_newapi/plugin.js`、`video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip` 的 GitHub Raw URL 均返回 HTTP 200（分别为 961、8806、9187 字节），旧目录 `video_wb2api_newapi/` 不再存在于当前版本。
@@ -43,13 +43,15 @@
 - 验证：插件源码 14/14、干净解压 ZIP 14/14、发布保护 38/38 离线测试通过；`node --check plugin.js`、`git diff --check`、索引 JSON/版本/哈希一致性检查通过；推送前 `check-push.js` 扫描 58 个 blob 通过。New API 市场实机安装未验证。
 - SSRF 审查结论（2026-11-05，后台安全审查 MEDIUM）：插件只向渠道管理员配置的 `ctx.baseUrl` 发请求，`input_reference`/`image`/`reference_images` 按 hub 原生 `/v1/videos` 契约透传，实际抓取这些 URL 的是 wb2api-hub，插件未新增攻击面。若需加固，应在 hub 侧对图片 URL 做 http/https、DNS 解析与私网/环回/链路本地地址拒绝、逐跳重定向重校验（如 `validateRemoteImageUrl()`），而非在插件层实现。
 
-## 当前工作区：moejs 实测兼容更新
+## 本次发布记录：moejs 实测兼容更新（6800031、a3f2a47）
 
 - 用户提供 `workbuddy-video-hub-current-20261106.zip` 和 `workbuddy-panel-video-current-20261106.zip`，核心修改是用受限字符串解析替代 moejs 不支持的 `new URL()`。
 - Hub 升级为 1.3.2，Panel 升级为 1.1.2；不复用已发布版本号。保留现有错误脱敏、模型重定向和协议边界，不直接采用实测 ZIP 对完整文档及测试的删减。
 - Panel 的 COS `contentUrl()` 同步移除 `URL` 依赖，保留 HTTPS 精确域名、端口、凭据和路径边界检查；否则提交修复后下载仍会在 moejs 失败。
 - 用户报告 2026-11-06 两个插件的 MiniMax H3 与 Kling V3 真实任务、MP4 下载及 `ftyp` 校验均成功；这是用户提供的实测报告，本次未创建付费任务。
-- 验证：Hub 源码及干净解压 ZIP 各 20/20，Panel 源码及干净解压 ZIP 各 18/18 离线测试通过，包含无 `URL` 构造器、渠道路径前缀、合法及非法 IPv6、非法端口和 COS 路径边界的回归用例。合法压缩 IPv6 用例先在旧实现上按预期失败，再修正校验；最终 IPv6 判断经独立审查无发现，但未在真实 moejs 运行时验证。本改动尚未提交或推送。
+- 验证：Hub 源码及干净解压 ZIP 各 20/20，Panel 源码及干净解压 ZIP 各 18/18 离线测试通过，包含无 `URL` 构造器、渠道路径前缀、合法及非法 IPv6、非法端口和 COS 路径边界的回归用例。合法压缩 IPv6 用例先在旧实现上按预期失败，再修正校验；最终 IPv6 判断经独立审查无发现，但最终版本未在真实 moejs 运行时重新验证。
+- 发布：`6800031` 提交源码、索引、版本及文档，`a3f2a47` 单独提交从精确源 blob 重建的两个客户端 ZIP。推送前检查器扫描 67 个唯一 blob 通过，精确 `HEAD` 导出与干净 ZIP 测试再次通过；普通推送保留 `.githooks/pre-push`，未使用绕过选项。推送后 `origin/main` 与本地 HEAD 一致，GitHub API 树核对及 Raw URL 检查通过。
+- 仍未验证：New API 市场实机安装、最终 Panel COS 兼容解析的真实任务执行。本轮未创建付费任务；用户实测报告对应其提供的实测版本，不自动证明本轮最终补丁已在同一环境执行。
 
 ## 已知边界与待办
 
