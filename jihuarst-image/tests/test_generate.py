@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import base64
 import importlib.util
+import io
 import json
 import ssl
 import tempfile
-import threading
 import unittest
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from unittest import mock
 
@@ -149,34 +149,110 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class MemorySocket:
+    def __init__(self, server):
+        self.server = server
+        self.request = io.BytesIO()
+        self.response = None
+        self.closed = False
+
+    def sendall(self, data) -> None:
+        if self.closed:
+            raise OSError("memory socket is closed")
+        self.request.write(data)
+
+    def setsockopt(self, *args) -> None:
+        pass
+
+    def makefile(self, mode):
+        if self.closed:
+            raise OSError("memory socket is closed")
+        self.request.seek(0)
+        self.response = self.server._respond(self.request)
+        self.response.seek(0)
+        return self.response
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class MemoryHTTPServer:
+    """Route real HTTP bytes through memory instead of Windows TCP ports."""
+
+    servers = {}
+    next_port = 20000
+
+    def __init__(self, server_address, handler_class):
+        host, port = server_address
+        if port == 0:
+            port = MemoryHTTPServer.next_port
+            MemoryHTTPServer.next_port += 1
+        self.server_address = (host, port)
+        self.server_port = port
+        self.RequestHandlerClass = handler_class
+        self._requests = {}
+        if self.server_address in self.servers:
+            raise RuntimeError("offline fake address is already registered")
+        self.servers[self.server_address] = self
+
+    def server_close(self) -> None:
+        if self.servers.get(self.server_address) is self:
+            del self.servers[self.server_address]
+        for streams in self._requests.values():
+            for stream in streams:
+                stream.close()
+        self._requests.clear()
+
+    @classmethod
+    def connect(cls, address, timeout=None, source_address=None):
+        server = cls.servers.get(address[:2])
+        if server is None:
+            raise OSError("offline fake received an unregistered host or port")
+        return MemorySocket(server)
+
+    def _respond(self, request):
+        response = io.BytesIO()
+        self._requests[id(request)] = (request, response)
+        handler = self.RequestHandlerClass.__new__(self.RequestHandlerClass)
+        handler.rfile = request
+        handler.wfile = response
+        handler.server = self
+        handler.client_address = ("memory", 0)
+        handler.close_connection = True
+        handler.handle_one_request()
+        return response
+
+
+@contextmanager
+def fake_server(handler_class=Handler):
+    server = MemoryHTTPServer(("127.0.0.1", 0), handler_class)
+    try:
+        yield server, f"http://127.0.0.1:{server.server_port}"
+    finally:
+        server.server_close()
+
+
 @contextmanager
 def fake_api(statuses, *, remote_image=False, redirect_target=None, download_status=200,
              download_body=IMAGE_BYTES, response_body=None, payloads=None,
              truncate_error_body=False, image_count=1):
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
-    server.statuses = statuses
-    server.requests = []
-    server.remote_image = remote_image
-    server.image_count = image_count
-    server.redirect_target = redirect_target
-    server.generation_redirect_target = None
-    server.generation_get_requests = []
-    server.response_body = response_body
-    server.payloads = payloads
-    server.truncate_error_body = truncate_error_body
-    server.download_status = download_status
-    server.download_count = 0
-    server.download_requests = 0
-    server.download_body = download_body
-    server.download_authorization = None
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
-    try:
-        yield server, f"http://127.0.0.1:{server.server_port}"
-    finally:
-        server.shutdown()
-        thread.join()
-        server.server_close()
+    with fake_server() as (server, url):
+        server.statuses = statuses
+        server.requests = []
+        server.remote_image = remote_image
+        server.image_count = image_count
+        server.redirect_target = redirect_target
+        server.generation_redirect_target = None
+        server.generation_get_requests = []
+        server.response_body = response_body
+        server.payloads = payloads
+        server.truncate_error_body = truncate_error_body
+        server.download_status = download_status
+        server.download_count = 0
+        server.download_requests = 0
+        server.download_body = download_body
+        server.download_authorization = None
+        yield server, url
 
 
 def load_module():
@@ -196,6 +272,11 @@ class GenerateTests(unittest.TestCase):
         self.assertTrue(SCRIPT.is_file(), "jihuarst generate.py 尚未实现")
         self.module = load_module()
         self.module._IMAGE_OPENER = self.module._build_image_opener(allow_private=True)
+        transport = mock.patch.object(
+            self.module.socket, "create_connection", MemoryHTTPServer.connect,
+        )
+        transport.start()
+        self.addCleanup(transport.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.output = Path(self.tempdir.name) / "out.png"
         self.ref = Path(self.tempdir.name) / "ref.png"
@@ -209,6 +290,33 @@ class GenerateTests(unittest.TestCase):
     def test_declared_priorities_match_requirements(self) -> None:
         self.assertEqual(EXPECTED_URLS, self.module.BASE_URLS)
         self.assertEqual(EXPECTED_MODELS, self.module.MODELS)
+
+    def test_fake_http_never_opens_a_network_socket(self) -> None:
+        with fake_api([200]) as (server, url), \
+                mock.patch.object(self.module.socket, "socket",
+                                  side_effect=AssertionError("unexpected network socket")):
+            self.module.generate_image("cat", self.output, "test-key", [url], timeout=2)
+        self.assertEqual(1, len(server.requests))
+        with self.assertRaisesRegex(OSError, "unregistered"):
+            self.module.socket.create_connection(("127.0.0.1", server.server_port), 2)
+
+    def test_fake_http_unsupported_method_returns_501(self) -> None:
+        with fake_api([200]) as (server, url):
+            request = self.module.urllib.request.Request(url, data=b"{}", method="PATCH")
+            with self.assertRaises(self.module.urllib.error.HTTPError) as raised:
+                self.module._IMAGE_OPENER.open(request, timeout=2)
+            with raised.exception:
+                self.assertEqual(501, raised.exception.code)
+
+    def test_fake_socket_rejects_use_after_close(self) -> None:
+        server = MemoryHTTPServer(("127.0.0.1", 0), Handler)
+        self.addCleanup(server.server_close)
+        connection = MemoryHTTPServer.connect(server.server_address)
+        connection.close()
+        with self.assertRaises(OSError):
+            connection.sendall(b"")
+        with self.assertRaises(OSError):
+            connection.makefile("rb")
 
     def test_default_text_chain_excludes_edit_only_model(self) -> None:
         with fake_api([500]) as (server, url):
@@ -732,16 +840,12 @@ class GenerateTests(unittest.TestCase):
                 self.end_headers()
                 self.wfile.write(body)
 
-        server = ThreadingHTTPServer(("127.0.0.1", 0), TwoImageHandler)
-        thread = threading.Thread(target=server.serve_forever, daemon=True)
-        thread.start()
+        server = MemoryHTTPServer(("127.0.0.1", 0), TwoImageHandler)
         try:
             url = f"http://127.0.0.1:{server.server_port}"
             result = self.module.generate_image("cat", self.output, "test-key",
                                                [url], EXPECTED_MODELS, 2, count=2)
         finally:
-            server.shutdown()
-            thread.join()
             server.server_close()
         self.assertEqual(2, len(result.paths))
         self.assertEqual(Path(self.tempdir.name) / "out-1.png", result.paths[0])

@@ -111,20 +111,14 @@ claude mcp add --transport stdio unified-web -- node "/absolute/path/to/unified-
 ## 离线验证
 
 ```bash
-# New API 插件
+# 从仓库根目录开始；任一目录切换或测试失败即停止。
+set -e
 cd video_wb2api_hub_newapi && npm test
 cd ../video_wb2api_panel_newapi && npm test
-
-# Jihuarst Image Skill
-cd jihuarst-image && python -m unittest discover -s tests -v
+cd ../jihuarst-image && PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v
+cd ../jihuarst-video && PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v
+cd ../unified-web-mcp && npm test
 cd ..
-
-# Jihuarst Video Skill
-cd jihuarst-video && python -m unittest discover -s tests -v
-cd ..
-
-# Unified Web MCP
-cd unified-web-mcp && npm test
 ```
 
 这些命令使用离线测试，不触发真实媒体生成费用。MCP 的 `npm run smoke` 会进行真实网络调用，应与离线测试区分。

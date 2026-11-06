@@ -11,11 +11,10 @@ import shutil
 import subprocess
 import sys
 import tempfile
-import threading
 import unittest
 import urllib.error
 from contextlib import contextmanager
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from unittest import mock
 
@@ -107,12 +106,86 @@ class Handler(BaseHTTPRequestHandler):
         pass
 
 
+class MemorySocket:
+    def __init__(self, server):
+        self.server = server
+        self.request = io.BytesIO()
+        self.response = None
+        self.closed = False
+
+    def sendall(self, data) -> None:
+        if self.closed:
+            raise OSError("memory socket is closed")
+        self.request.write(data)
+
+    def setsockopt(self, *args) -> None:
+        pass
+
+    def makefile(self, mode):
+        if self.closed:
+            raise OSError("memory socket is closed")
+        self.request.seek(0)
+        self.response = self.server._respond(self.request)
+        self.response.seek(0)
+        return self.response
+
+    def close(self) -> None:
+        self.closed = True
+
+
+class MemoryHTTPServer:
+    """Route real HTTP bytes through memory instead of Windows TCP ports."""
+
+    servers = {}
+    next_port = 20000
+
+    def __init__(self, server_address, handler_class):
+        host, port = server_address
+        if port == 0:
+            port = MemoryHTTPServer.next_port
+            MemoryHTTPServer.next_port += 1
+        self.server_address = (host, port)
+        self.server_port = port
+        self.RequestHandlerClass = handler_class
+        self._requests = {}
+        if self.server_address in self.servers:
+            raise RuntimeError("offline fake address is already registered")
+        self.servers[self.server_address] = self
+
+    def server_close(self) -> None:
+        if self.servers.get(self.server_address) is self:
+            del self.servers[self.server_address]
+        for streams in self._requests.values():
+            for stream in streams:
+                stream.close()
+        self._requests.clear()
+
+    @classmethod
+    def connect(cls, address, timeout=None, source_address=None):
+        server = cls.servers.get(address[:2])
+        if server is None:
+            raise OSError("offline fake received an unregistered host or port")
+        return MemorySocket(server)
+
+    def _respond(self, request):
+        response = io.BytesIO()
+        self._requests[id(request)] = (request, response)
+        handler = self.RequestHandlerClass.__new__(self.RequestHandlerClass)
+        handler.rfile = request
+        handler.wfile = response
+        handler.server = self
+        handler.client_address = ("memory", 0)
+        handler.close_connection = True
+        handler.handle_one_request()
+        return response
+
+
 @contextmanager
 def fake_api(statuses, *, task_statuses=None, task_id="task-1", invalid_json=False,
              video_url="https://cdn.example.invalid/video.mp4", redirect_target=None,
              redirect_path="/redirect", remote_video=False, download_body=MP4_BYTES,
              download_status=200):
-    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    server = MemoryHTTPServer(("127.0.0.1", 0), Handler)
     server.statuses = statuses
     server.task_statuses = task_statuses or ["queued", "failed"]
     server.task_id = task_id
@@ -131,13 +204,9 @@ def fake_api(statuses, *, task_statuses=None, task_id="task-1", invalid_json=Fal
     server.requests = []
     server.post_count = 0
     server.poll_count = 0
-    thread = threading.Thread(target=server.serve_forever, daemon=True)
-    thread.start()
     try:
         yield server, f"http://127.0.0.1:{server.server_port}"
     finally:
-        server.shutdown()
-        thread.join()
         server.server_close()
 
 
@@ -159,6 +228,11 @@ class GenerateTests(unittest.TestCase):
         self.original_download_opener = self.module._DOWNLOAD_OPENER
         self.module._JSON_OPENER = self.module._build_opener(allow_private=True)
         self.module._DOWNLOAD_OPENER = self.module._build_opener(allow_private=True)
+        transport = mock.patch.object(
+            self.module.socket, "create_connection", MemoryHTTPServer.connect,
+        )
+        transport.start()
+        self.addCleanup(transport.stop)
         self.tempdir = tempfile.TemporaryDirectory()
         self.output = Path(self.tempdir.name) / "out.mp4"
         self.ref = Path(self.tempdir.name) / "ref.png"
@@ -172,6 +246,34 @@ class GenerateTests(unittest.TestCase):
     def test_declared_priorities(self) -> None:
         self.assertEqual(EXPECTED_URLS, self.module.BASE_URLS)
         self.assertEqual(["minimax-video-h3", "kling-video-v3"], self.module.MODELS)
+
+    def test_fake_http_never_opens_a_network_socket(self) -> None:
+        with fake_api([200], remote_video=True) as (server, url), \
+                mock.patch.object(self.module.socket, "socket",
+                                  side_effect=AssertionError("unexpected network socket")):
+            self.module.generate_video("cat", self.output, "test-key", [url],
+                                       timeout=2, poll_interval=0, max_wait=2)
+        self.assertEqual(3, len(server.requests))
+        with self.assertRaisesRegex(OSError, "unregistered"):
+            self.module.socket.create_connection(("127.0.0.1", server.server_port), 2)
+
+    def test_fake_http_unsupported_method_returns_501(self) -> None:
+        with fake_api([200]) as (server, url):
+            request = self.module.urllib.request.Request(url, data=b"{}", method="PATCH")
+            with self.assertRaises(self.module.urllib.error.HTTPError) as raised:
+                self.module._JSON_OPENER.open(request, timeout=2)
+            with raised.exception:
+                self.assertEqual(501, raised.exception.code)
+
+    def test_fake_socket_rejects_use_after_close(self) -> None:
+        server = MemoryHTTPServer(("127.0.0.1", 0), Handler)
+        self.addCleanup(server.server_close)
+        connection = MemoryHTTPServer.connect(server.server_address)
+        connection.close()
+        with self.assertRaises(OSError):
+            connection.sendall(b"")
+        with self.assertRaises(OSError):
+            connection.makefile("rb")
 
     def test_text_request_uses_openai_video_contract(self) -> None:
         request = self.module._build_submit_request(

@@ -13,7 +13,7 @@
 *.tar
 *.tgz
 unified-web-mcp/unified-web-mcp-package/*
-# Only these five reviewed client distributions are tracked.
+# Only these six reviewed client distributions are tracked.
 !video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip
 !video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip
 !jihuarst-image/jihuarst-image.zip
@@ -25,6 +25,9 @@ unified-web-mcp/unified-web-mcp-package/*
 *.py[cod]
 *.log
 *.tsbuildinfo
+
+# Local reference documents supplied for development only.
+/可乐生图_API接口参数说明.docx
 
 # Local editor and agent state
 .omc/
