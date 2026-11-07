@@ -1,15 +1,17 @@
 # 项目进度
 
-> 最后更新：2026-11-06。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
+> 最后更新：2026-11-07。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
 
 ## 当前基线
 
-- 当前分支：`main`；已发布基线：`b6172df docs: record moejs plugin publication`，此前依次为 `a3f2a47 chore: rebuild video plugin client archives`、`6800031 fix: support moejs video gateway URLs`。三个提交已推送至 `origin/main`，Hub 1.3.2、Panel 1.1.2、索引、两个插件源码及两个 ZIP 的 Raw URL 均返回 HTTP 200；GitHub 根树及 66 个 blob 条目与本地 `b6172df` 完全一致。Raw 索引、源码、ZIP 字节和源码 SHA-256 均与本地提交一致。
+- 当前分支：`main`；已发布基线：`35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。两个提交已推送至 `origin/main`；推送后本地与远端均为 `35e8930`，工作区无未提交的跟踪文件变更。GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地完全一致；`AGENTS.md`、本状态文档、两个 Jihuarst 测试文件及两个官方 ZIP 的固定提交 Raw URL 均返回 HTTP 200，且字节与本地提交一致。
+- 本轮发布包括仓库文档整理、Jihuarst Image/Video 离线内存 HTTP fixture、对应官方 ZIP，以及 2026-11-07 的真实付费验证记录。生产 `scripts/generate.py`、New API 插件源码、市场索引及版本均未修改；本地凭据、任务 ID、日志和付费媒体仍只保留在忽略目录。
+- 更早的发布基线：`b6172df docs: record moejs plugin publication`，此前依次为 `a3f2a47 chore: rebuild video plugin client archives`、`6800031 fix: support moejs video gateway URLs`。三个提交已推送至 `origin/main`，Hub 1.3.2、Panel 1.1.2、索引、两个插件源码及两个 ZIP 的 Raw URL 均返回 HTTP 200；当时 GitHub 根树及 66 个 blob 条目与本地 `b6172df` 完全一致，Raw 索引、源码、ZIP 字节和源码 SHA-256 均与本地提交一致。
 - `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
 - `726dfec` 将视频插件重命名为 Hub 专用：目录 `video_wb2api_hub_newapi/`、key `workbuddy-video-hub`、显示名 `WorkBuddy Video Hub`、版本 1.2.0；同步 `index.json`、文档、ZIP 与发布保护白名单，共 14 个文件。
 - `3a24780` 与 `726dfec` 均已推送至 `origin/main`。`726dfec` 推送后远端文件树与本地提交一致；新 `index.json`、`video_wb2api_hub_newapi/plugin.js`、`video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip` 的 GitHub Raw URL 均返回 HTTP 200（分别为 961、8806、9187 字节），旧目录 `video_wb2api_newapi/` 不再存在于当前版本。
 - 1.2.0 的 `index.json` 版本、路径与插件源码 LF 归一化 SHA-256（`9bfee89c5e9ce129f23c3b45f48efac3b9111855553671ff4ba1601c4a308a32`）一致。
-- 上述发布事实对应 2026-11-06 的检查，不代表后续提交也已发布。开始新工作前必须重新检查 Git 状态和远端。
+- 上述发布事实分别对应 2026-11-06 与 2026-11-07 的检查，不代表后续提交也已发布。开始新工作前必须重新检查 Git 状态和远端。
 
 ## 六个项目的当前状态
 
@@ -55,7 +57,7 @@
 
 ## 2026-11-06 仓库文档整理
 
-- 保留六个产品目录、历史项目文档和六个发布 ZIP 的原位分类；本次设计与计划分别记录在 `docs/superpowers/specs/2026-11-06-repository-maintenance-organization-design.md`、`docs/superpowers/plans/2026-11-06-repository-maintenance-organization.md`。修正 README 离线测试目录切换及六 ZIP 注释，将 moejs、实测证据、精确源打包与远端树核对规则沉淀到 `AGENTS.md`。本整理未改动插件源码、索引、版本或 ZIP，尚未提交或推送；本地 DOCX 新增精确忽略规则，两份实测输入 ZIP 保持原位且均不纳入 Git。
+- 保留六个产品目录、历史项目文档和六个发布 ZIP 的原位分类；本次设计与计划分别记录在 `docs/superpowers/specs/2026-11-06-repository-maintenance-organization-design.md`、`docs/superpowers/plans/2026-11-06-repository-maintenance-organization.md`。修正 README 离线测试目录切换及六 ZIP 注释，将 moejs、实测证据、精确源打包与远端树核对规则沉淀到 `AGENTS.md`。本整理未改动插件源码、索引、版本或 ZIP；本地 DOCX 新增精确忽略规则，两份实测输入 ZIP 保持原位且均不纳入 Git。
 - 文档检查通过：五份文档无占位标记，12 个本地链接可解析，两项插件 LF 源码 SHA-256 与索引一致，六个发布 ZIP 均保持跟踪，三份本地输入保持 ignored/untracked，产品源码、索引、版本、ZIP 与 `CLAUDE.md` 无差异。发布保护测试 38/38 通过。
 - 本次顺序运行 Hub、Panel、Jihuarst Image、Jihuarst Video、MCP 的离线测试，确认 README 的目录切换均可执行；Hub 20/20、Panel 18/18、MCP 85/85 通过。Jihuarst Image 首轮 54 条有 1 failure、4 errors，再次全量运行有 1 failure、1 error；失败项含本地环回 mock 的 `WinError 10048`，其中五条定向重跑通过，但全量套件仍未通过。独立 socket 跟踪将图片错误定位到发送 HTTP 请求前的客户端 `socket.create_connection()`；没有捕获到可确认的跨进程冲突四元组，不将推断写成已证实的端口冲突细节。
 - Jihuarst Video 64 条有 2 failures，其中未知状态用例定向重跑通过；终态任务回退用例在全量运行观察到 0 次提交、定向运行观察到 1 次提交，均非预期的 2 次。独立诊断确认该 mock 的提交响应固定为 `queued`，首次轮询选择 `failed`，而 `TaskTerminalError` 允许继续下一组合；这一路径本身不能解释第二次提交为何未被观察到，现有证据也不足以判断应修改源码还是 fixture。图片 socket 诊断不得泛化为该视频断言失败的根因；文档整理阶段未修改产品或测试实现，后续测试修复及验证见下节。
@@ -65,14 +67,21 @@
 - 保留上述文档整理时的失败记录作为历史证据。修复只涉及 `jihuarst-image/tests/test_generate.py`、`jihuarst-video/tests/test_generate.py`，两个生产 `scripts/generate.py` 均无差异；没有调整生产重试、任务提交、轮询、下载或计费错误策略。
 - 将不稳定的 Windows 环回 TCP fixture 改为测试内内存 HTTP 传输：只在测试期间替换最终的 `socket.create_connection()`，生产 opener、连接类、地址校验、重定向及凭据处理保持不变。每个伪服务器使用唯一合成端口，未注册地址显式失败；新增真实 `socket.socket()` 创建即失败的回归用例。测试仍解析真实 HTTP 请求及响应字节，全程不创建网络监听器或真实凭据。
 - 独立代码审查指出内存 fixture 对未知 HTTP 方法及关闭后 socket 的行为与标准库不一致；新增两条回归后，伪服务器改用 `handle_one_request()` 处理未知方法，`sendall()`/`makefile()` 在关闭后显式失败。定向验证中的 `HTTPError` 析构警告也通过先关闭错误响应、再清理服务器内存流消除，没有放宽断言或吞掉异常。
-- 验证：图片连续五轮各 57/57（共 285/285）、视频连续五轮各 67/67（共 335/335）通过，均无析构警告。两份四文件 ZIP 已按最终测试源码重建，条目白名单、CRC、源文件逐字节一致性、干净解压 57/57 与 67/67 测试及四个非空本地凭据值的精确扫描通过。隔离临时 Git 元数据中的当前索引快照通过仓库推送保护检查（65 个 blob，未显示凭据值）；一次误用 `--all` 的审计被已知历史旧 ZIP 路径阻断，未据此判定本次归档失败，也未弱化保护规则。本次未运行真实网关、付费媒体生成或 New API 实机测试，尚未提交或推送。
+- 验证：图片连续五轮各 57/57（共 285/285）、视频连续五轮各 67/67（共 335/335）通过，均无析构警告。两份四文件 ZIP 已按最终测试源码重建，条目白名单、CRC、源文件逐字节一致性、干净解压 57/57 与 67/67 测试及四个非空本地凭据值的精确扫描通过。隔离临时 Git 元数据中的当前索引快照通过仓库推送保护检查（65 个 blob，未显示凭据值）；一次误用 `--all` 的审计被已知历史旧 ZIP 路径阻断，未据此判定本次归档失败，也未弱化保护规则。本次记录当时未运行真实网关、付费媒体生成或 New API 实机测试；后续真实付费验证见下节，发布结果见文末。
 
 ## 2026-11-07 Jihuarst 真实付费验证
 
 - 用户明确请求真实付费调用；按最小范围对刚修复测试的两个 Skill 各运行一次，使用仓库中的生产脚本，不使用测试 fixture。两项均固定 HTTPS 入口 `https://api.jihuarst.top` 和单模型，不发送参考图或本地私有媒体，不扩展到其他入口或模型。现有资料没有可靠单价，实际费用仍需通过网关核对。
 - 图片固定 `gpt-image-2.5`，文生图 1 张、1536x1024、low 质量；请求、下载及本地保存成功。私有产物位于被忽略的 `.omc/artifacts/live-validation-20261107/`，PNG 为 1,795,875 字节、1536x1024，SHA-256 `9235d22f16b28a51b09bf71f031c0dcf5241165c3184a863546f282a3206d687`；只验证文件字节、PNG 签名及尺寸，未单独验收视觉质量。
 - 视频固定 `minimax-video-h3`，文生视频 5 秒、1280x720；同一任务完成提交、轮询、MP4 下载及本地保存，没有创建替代任务。MP4 为 609,068 字节，SHA-256 `3b010afd9c19a1d320b572bb394877d147cf36c8f59f51566a7cf248c561ac32`，`ftyp` 签名检查通过。本机未找到 `ffprobe`，未验证编码参数、精确时长、逐帧解码或视觉质量。
-- 两个后台命令均以退出码 0 完成；结果文件与日志保存在同一忽略目录，真实任务 ID 不写入公开状态文档，媒体及日志不进入 Git 或发布 ZIP。本次没有修改生产脚本或 ZIP，也未提交或推送。
+- 两个后台命令均以退出码 0 完成；结果文件与日志保存在同一忽略目录，真实任务 ID 不写入公开状态文档，媒体及日志不进入 Git 或发布 ZIP。本次没有修改生产脚本；对应发布记录见下节。
+
+## 2026-11-07 文档、测试修复及 ZIP 发布
+
+- `b37acb6` 提交文档整理、两个离线测试 fixture 及真实验证记录，`35e8930` 单独提交按最终源文件重建的两份官方 ZIP。普通推送由 `b6172df` 更新到 `35e8930`，未使用绕过选项、未打标签或改写历史。
+- 发布前最终检查：提交树的干净导出中图片 57/57、视频 67/67 通过；精确提交树 68 个唯一 blob 的仓库原生安全检查通过，实际 pre-push 检查 69 个唯一 blob 通过。两份 ZIP 保持四文件白名单、CRC 和源码字节一致，干净解压测试分别为 57/57、67/67，且无清理警告。
+- 推送后 `origin/main` 与本地 `HEAD` 一致。通过 GitHub 根树 ID 查询递归树，确认 68 个 blob 的路径、SHA 和大小全部匹配；六个本轮代表性公开文件的固定提交 Raw URL 均为 HTTP 200 且字节一致。该核验没有修改源码或归档。
+- 本次保存进度只更新 `AGENTS.md` 与本状态文档，保留既有目录分类及历史文档，不移动或重打官方 ZIP，也不改变已发布提交。New API 市场实机安装及最终 moejs 运行仍未验证；真实视频媒体质量仅完成文件与 `ftyp` 检查。
 
 ## 已知边界与待办
 
