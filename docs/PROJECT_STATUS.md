@@ -2,17 +2,18 @@
 
 > 最后更新：2026-11-10。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
 
-## 进行中的分支：Jihuarst Image 2.6
+## 已发布：Jihuarst Image 2.6（2026-11-10）
 
-- 当前工作分支为 `feat/jihuarst-image-2-6`；本轮已获用户明确授权提交、先推送该分支、以 `--no-ff` 合并到 `main` 并推送，同时保留功能分支。发布前 `main` 与 `origin/main` 均为 `f656bc9`；本轮尚未打标签或在 New API 中安装验证。实现与计划见 `docs/superpowers/specs/2026-11-09-jihuarst-image-2-6-design.md`、`docs/superpowers/plans/2026-11-09-jihuarst-image-2-6.md`。
+- `main` 与 `origin/main` 当前均为合并提交 `88703f0 merge: integrate Jihuarst Image 2.6 support`，以 `--no-ff` 合并，父提交为 `f656bc9` 与 `877e034`。功能提交依次为 `94e765d feat: support GPT Image 2.6 generation options`、`e89ef06 chore: rebuild Jihuarst Image client archive`、`877e034 fix: scope first-push checks to outgoing commits`。`feat/jihuarst-image-2-6` 在本地和远端均保留于 `877e034`，未删除、变基或强推；本轮未打标签、未创建 PR、未在 New API 中安装验证。实现与计划见 `docs/superpowers/specs/2026-11-09-jihuarst-image-2-6-design.md`、`docs/superpowers/plans/2026-11-09-jihuarst-image-2-6.md`。
 - Jihuarst Image 新增 `gpt-image-2.6-sunburst`、`gpt-image-2.6-exact`、`gpt-image-2.6-flare`，支持 `complexity=low|medium|high`、任意非 null JSON 的 `svg` / `markup-json`、2–16 的 `frame_count`、至少 20 ms 的 `frame_duration_ms`，以及 edits 模式的本地 `markup` 文件。mask 与两种 markup 输入互斥，非法 complexity、帧参数及非正/非有限 timeout 均在付费请求前拒绝。generations 与 edits 默认请求 `response_format=url`，保留 base64/data URL/远程 URL 响应兼容、URL 下载安全限制和默认 180 秒超时。默认回退扩为 4 URL × 7 模型共 28 个组合；提供 2.6 新参数且未指定模型时只选三个 2.6 候选，显式非 2.6 模型在请求前失败。SVG/GIF 按字节本地交付，SVG 只识别有界根标签，不执行、不渲染、不宣称已消毒。
 - New API `v1.0.0-rc.49` 与 PR #8208 是字段转发契约证据；2026-11-09 只读 `/v1/models` 只证明三个 ID 已列入 Jihuarst 目录。任意 JSON `svg` 和 generations JSON markup 是用户确认的宽松网关兼容扩展：官方 `svg` 为结构化对象，官方 generations schema 不含 markup；`json.RawMessage` 不证明任意值符合官方语义。`response_format=url` 是 Jihuarst 部署特定选择，官方 GPT Image 使用 base64；`gpt-image-2.6-exact` 是目录 ID，不称为官方模型枚举。官方 OpenAPI 与 Python SDK 对 edits SVG 的版本定义冲突，客户端不宣称该路径已获上游支持。最新 URL 模式真实验证中，七模型 generations 与八模型单图 edits 的生成响应均 HTTP 200；完整交付仅混元 generations 一项和混元 edits 两项，六个 GPT 模型均因 `img.hud.im` 图片下载失败而无文件。`complexity`、SVG、GIF、本地/JSON markup 请求均为 HTTP 500 无可用渠道，未取得真实产物。私有 b64 强制对照的 generations/edits 各成功交付一张 PNG，不代表生产默认 URL 路径已完整交付，详见下方完整矩阵。
-- 当前源码通过 80/80 离线测试，退出码 0；发布保护测试 38/38，退出码 0。最终客户端 ZIP 已按最终源重建为 34,698 字节，SHA-256 `d6fc7f67840df8a330b65c7dade25fad0b01df7f67853454932d9d980d800247`，仅含四个白名单文件，通过 CRC、源文件逐字节一致性、无嵌套归档和本地非空凭据值精确扫描。干净解压离线测试为 80/80、退出码 0；变更文件凭据扫描及空暂存区检查通过。新增覆盖包括默认 URL、`output_format`、严格 `data` 条目数、脱敏下载错误、普通 `Mozilla/5.0` 下载 UA，以及 complexity/帧参数/timeout 和 mask+markup 的请求前拒绝；新校验回归在旧实现上产生 14 个预期失败后转为通过。UA 修复有真实红绿回归：它解决了已复现的 Python 默认 UA 触发 HTTP 403 的一层兼容问题，但最终生产 opener 对既有 URL 仍在 181.3 秒后超时且无文件；同一 UA 的普通 HTTPS 也在 200 响应头后超时，不能宣称 URL 正文交付已修复。上述离线测试不验证真实 TCP/TLS、网络时序或线上交付。
+- 当前源码通过 80/80 离线测试，退出码 0；发布保护测试 40/40，退出码 0。最终客户端 ZIP 已按最终源重建为 34,698 字节，SHA-256 `d6fc7f67840df8a330b65c7dade25fad0b01df7f67853454932d9d980d800247`，仅含四个白名单文件，通过 CRC、源文件逐字节一致性、无嵌套归档和本地非空凭据值精确扫描。干净解压离线测试为 80/80、退出码 0；变更文件凭据扫描及空暂存区检查通过。新增覆盖包括默认 URL、`output_format`、严格 `data` 条目数、脱敏下载错误、普通 `Mozilla/5.0` 下载 UA，以及 complexity/帧参数/timeout 和 mask+markup 的请求前拒绝；新校验回归在旧实现上产生 14 个预期失败后转为通过。UA 修复有真实红绿回归：它解决了已复现的 Python 默认 UA 触发 HTTP 403 的一层兼容问题，但最终生产 opener 对既有 URL 仍在 181.3 秒后超时且无文件；同一 UA 的普通 HTTPS 也在 200 响应头后超时，不能宣称 URL 正文交付已修复。上述离线测试不验证真实 TCP/TLS、网络时序或线上交付。
 - 三个视频项目使用 `/v1/videos`（插件协议为 `openai_video`），本次 Images API 扩展不要求修改其模型、源码、版本或市场索引。未改动 `jihuarst-video`、`video_wb2api_hub_newapi`、`video_wb2api_panel_newapi` 源码；回归结果分别为 67/67、20/20、18/18 离线测试通过，退出码均为 0；同日两个视频模型均完成真实 MP4 交付。此结果不代表真实 New API rc.49 已实测。
 
 ## 当前基线
 
-- 上一已发布基线：`main` 的 `35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。两个提交已推送至 `origin/main`；推送后本地与远端均为 `35e8930`，工作区无未提交的跟踪文件变更。GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地完全一致；`AGENTS.md`、本状态文档、两个 Jihuarst 测试文件及两个官方 ZIP 的固定提交 Raw URL 均返回 HTTP 200，且字节与本地提交一致。其后 `f656bc9 docs: reorganize maintenance guide and release status` 已存在于 `main` 与 `origin/main`，是本轮分支起点。
+- 当前发布基线：`main` 与 `origin/main` 均为 `88703f0`；推送后 GitHub 递归树的 70 个 blob 路径、SHA、大小与本地一致且未截断，脚本、测试、`SKILL.md`、ZIP、状态文档、guard 及设计/计划等 10 个发布敏感文件的固定合并提交 Raw URL 与 Git 字节一致。两个分支正常推送时 pre-push 均扫描 73 个唯一 blob 并通过，未绕过检查；对 4 个本地非空凭据值检查 208 个历史 blob、70 个远端树条目及发布 ZIP 内容均为 0 匹配。该精确值审计不证明未知历史秘密绝对不存在。
+- 上一已发布基线：`35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。其后 `f656bc9 docs: reorganize maintenance guide and release status` 是本轮分支起点。当时 `35e8930` 的 GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地一致，相关固定提交 Raw URL 均返回 HTTP 200 且字节一致。
 - 本轮发布包括仓库文档整理、Jihuarst Image/Video 离线内存 HTTP fixture、对应官方 ZIP，以及 2026-11-07 的真实付费验证记录。生产 `scripts/generate.py`、New API 插件源码、市场索引及版本均未修改；本地凭据、任务 ID、日志和付费媒体仍只保留在忽略目录。
 - 更早的发布基线：`b6172df docs: record moejs plugin publication`，此前依次为 `a3f2a47 chore: rebuild video plugin client archives`、`6800031 fix: support moejs video gateway URLs`。三个提交已推送至 `origin/main`，Hub 1.3.2、Panel 1.1.2、索引、两个插件源码及两个 ZIP 的 Raw URL 均返回 HTTP 200；当时 GitHub 根树及 66 个 blob 条目与本地 `b6172df` 完全一致，Raw 索引、源码、ZIP 字节和源码 SHA-256 均与本地提交一致。
 - `6b3aef1` 完成 WorkBuddy Video 多模型升级及 Jihuarst Image 完整交付重试；`03936d8` 提交对应的两个客户端 ZIP；`6098964` 建立项目状态及长期维护规则；`3a24780` 更新参数契约、实测边界和维护规则，并重建图片、视频客户端 ZIP。
@@ -27,7 +28,7 @@
 |---|---|---|
 | `video_wb2api_hub_newapi/` | WorkBuddy Video Hub 1.3.2，key 为 `workbuddy-video-hub`；仅用于 wb2api Hub，不兼容 Panel；moejs 兼容地址解析、错误脱敏 | 2026-11-09 回归 20/20 离线测试通过；用户报告 2026-11-06 两个模型实测成功 |
 | `video_wb2api_panel_newapi/` | WorkBuddy Panel Video 1.1.2，key 为 `workbuddy-panel-video`；仅用于 wb2api Panel；moejs 兼容渠道/COS 解析、错误脱敏、不向 COS 转发密钥 | 2026-11-09 回归 18/18 离线测试通过；用户报告 2026-11-06 两个模型实测成功 |
-| `jihuarst-image/` | `feat/jihuarst-image-2-6` 收尾中：新增三个 2.6 模型、新请求字段、markup、`output_format` 与 SVG/GIF 字节交付；已获提交、推送及合并授权 | 2026-11-09 源码与干净解压 ZIP 各 80/80 离线测试通过；四文件归档与安全审计通过；真实交付限制见完整矩阵 |
+| `jihuarst-image/` | 已合并并推送到 `main` 的 `88703f0`；三个 2.6 模型、新请求字段、markup、`output_format` 与 SVG/GIF 字节交付；保留 `feat/jihuarst-image-2-6` | 2026-11-10 合并结果 80/80 离线测试通过；此前源码与干净解压 ZIP 各 80/80；四文件归档与安全审计通过；真实交付限制见完整矩阵 |
 | `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改源码，Images API 更新不适用于其 `/v1/videos` 通道 | 2026-11-09 回归 67/67 离线测试通过 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；六 ZIP 跟踪状态检查通过，历史安全审计覆盖其归档 |
 | `unified-web-mcp/` | 0.1.0；本轮未改动 | 2026-11-06 文档整理中源码 85/85 离线测试通过；更早历史见项目内 `PROJECT_MEMORY.md` |
@@ -141,7 +142,7 @@
 - **视频媒体质量未完整验收。** 当前环境没有 `ffprobe`；只验证了下载字节与 MP4 `ftyp` 签名，没有验证编码参数、精确时长、逐帧解码或视觉内容。
 - **全历史 ZIP 扫描存在已知阻断。** `node .githooks/check-push.js --all` 会按历史路径识别旧 `kling_wb2api_newapi/kling_wb2api_newapi.zip` 与 `video_wb2api_newapi/video_wb2api_newapi.zip`，并因其不再是当前白名单路径而失败。这属于已移除历史产物的路径策略限制，不是本次普通推送失败；普通推送的增量检查已通过。不得为绕过它而弱化当前规则或擅自改写历史。
 - `gh` CLI 在当时的 Windows 环境不可用，远端文件树通过 GitHub API 核对；不要假设所有机器都安装了 `gh`。
-- 用户已明确授权本轮 Jihuarst Image 完整验证、必要修复及真实付费测试，并在 2026-11-10 进一步授权提交、先推送功能分支、以 `--no-ff` 合并及推送 `main`，要求保留 `feat/jihuarst-image-2-6`。该范围不包括新的视频付费任务、打标签或 New API 实机安装。完整结果见上一节：GPT URL 正文交付仍未修复，SVG/GIF/complexity/markup 因无可用渠道没有真实产物，其他入口或参数的重试仍需注明范围与可能费用。本快照记录于提交前；最终提交与远端核验以 Git 事实为准。
+- 2026-11-10 已按用户明确授权提交、先推送 `feat/jihuarst-image-2-6`，以 `--no-ff` 合并并推送 `main`，保留功能分支。没有新增视频付费任务、打标签或 New API 实机安装；合并后 80/80 图片离线测试通过，两次真实推送均未绕过 pre-push。完整结果见上一节：GPT URL 正文交付仍未修复，SVG/GIF/complexity/markup 因无可用渠道没有真实产物，其他入口或参数的重试仍需注明范围与可能费用。
 - 根目录的 `可乐生图_API接口参数说明.docx` 是用户提供的本地只读参考，尚未纳入 Git。它描述的是另一部署的前端行为，不能作为 Jihuarst 参数能力的直接证据；若需长期保存，应先决定是否公开及如何去除敏感内容。
 
 ## 接手顺序

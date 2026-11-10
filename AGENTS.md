@@ -113,7 +113,7 @@ After every upgrade to a distributable project, regenerate its client ZIP withou
 - The Node.js guard scans every outgoing commit, including staged content on an unborn branch, compares exact non-empty values from ignored local configs, blocks private paths and non-allowlisted archives, and never prints credentials.
 - The six allowlisted ZIPs undergo bounded offline entry, path, nested-archive, and expansion checks plus the same private-path and exact-credential scans. Malformed or unsupported ZIPs fail closed.
 - Test the guard from the repository root with `node --test .githooks/check-push.test.js`. Keep it offline and fail closed.
-- Never use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed. Fix the source or remove the content from every outgoing commit. This heuristic cannot prove absence of unknown secrets.
+- Never use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed. Offline tests may use it only to seed published history in an isolated temporary bare repository. Fix the source or remove the content from every outgoing commit. This heuristic cannot prove absence of unknown secrets.
 - Distinguish `--all` history findings from outgoing-push findings. Current archive-path policy also applies to historical paths, so formerly allowlisted but removed ZIPs can block `--all`; record the path and reason. For a new remote ref, the guard excludes commits reachable from existing remote-tracking refs, including `remote/HEAD`, and still scans every genuinely outgoing commit. Run repository checks from the root (or with `git -C <root>`) so allowlisted paths are not made relative to a subdirectory. Do not mistake known history/path findings for a need to bypass the guard or rewrite published history without authorization.
 - A normal pre-push pass does not prove all historical blobs are safe.
 
@@ -122,7 +122,7 @@ After every upgrade to a distributable project, regenerate its client ZIP withou
 - Before pushing, verify the remote and branch and inspect `git diff --name-only origin/main...HEAD`.
 - After pushing, fetch and compare `origin/main` with `HEAD`, then compare the GitHub tree with the local commit.
 - In GitHub verification, distinguish commit IDs from root tree IDs. Compare recursive API `blob` entries with `git ls-tree -r -l`, excluding directory `tree` entries.
-- Fetch release-sensitive Raw URLs by immutable commit SHA and compare their bytes with `git show HEAD:<path>`. A mutable-branch HTTP 200 alone does not prove content parity.
+- Fetch release-sensitive Raw URLs by an explicitly verified immutable commit SHA and compare their bytes with `git show <verified-sha>:<path>`. A mutable-branch HTTP 200 alone does not prove content parity; do not assume `HEAD` still names the published commit.
 - GitHub push protection, when enabled, is an additional service-side layer, not a replacement for these checks.
 
 ## Changes and testing
@@ -154,7 +154,7 @@ Run each command from its owning project directory:
 
 - Keep automated tests offline with temporary fake configurations and mock services; never require real credentials or paid API calls.
 - Invoke discovery from the owning project directory with its documented relative path. On Windows, prefix Python tests with `PYTHONIOENCODING=utf-8`; mojibake alone is not a failure, but import or discovery errors invalidate the run.
-- Read the final summary and exit code. Expected failures printed by mock scenarios are not suite failures; never infer success from selected log lines.
+- Read the final summary and exit code. Expected failures printed by mock scenarios are not suite failures; never infer success from selected log lines. A background exit notification alone does not establish the test count or skipped/todo counts.
 - Stop command chains on failed directory changes or tests using `set -e` or `&&` throughout. A later success must not mask an earlier failure.
 - Run relevant offline tests for changed projects. For documentation-only changes, at minimum validate JSON, plugin source hashes, local links, and absence of ignored or sensitive staged files.
 - For release verification, test a clean export of the exact staged or committed tree so ignored local configuration and generated artifacts cannot hide defects.
