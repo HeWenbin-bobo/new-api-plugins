@@ -2,12 +2,15 @@
 
 > 最后更新：2026-11-10。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
 
-## 本地整合：Local OCR 插件与 Skill（2026-11-10）
+## 已发布：Local OCR 插件与 Skill（2026-11-10）
 
 - 按用户确认的统一目录方案，将 `local-ocr` Task Plugin 0.1.6 和 `local-document-ocr` Agent Skill 分别整合到 `local-ocr-task-plugin/` 与 `local-document-ocr/`，删除经逐字节核对的嵌套重复源码及第二份插件索引。插件源码、模型 ID、版本和哈希保持不变；插件 LF SHA-256 为 `c10ce313198ff5e4e33b9f6638fbfd44d1901ce745997fdd82261906e24ad60a`。独立审查后，Skill 为轮询、产物列表、下载及下载后格式校验失败补齐公共任务 ID，并将非法 UTF-8 Markdown 转为友好错误；新增不重复提交、保留既有输出、非标准凭据脱敏及这些恢复路径的五条 CLI 回归；最终独立只读复审无剩余 CRITICAL/HIGH/MEDIUM 并批准。非标准凭据回归证实所指提交应用级错误路径原本已传入密钥。设计与计划见 `docs/superpowers/specs/2026-11-10-local-ocr-repository-integration-design.md`、`docs/superpowers/plans/2026-11-10-local-ocr-repository-integration.md`。
 - 根 `index.json` 只新增 `local-ocr@0.1.6`，源码路径为 `local-ocr-task-plugin/plugin.js`；同步两个模型、两条原生路由及 `pages` 用量。Skill 未加入市场索引。安装插件不会安装 Skill 或 OCR 推理服务，仍需独立部署的鉴权 OCR 任务网关。根 README、`AGENTS.md`、插件 README 和两份精确 ZIP 白名单均已同步。
 - 新验证：插件 Node fixture 11/11、Skill Python 22/22、发布保护 40/40，退出码均为 0，无跳过或 todo。两份 ZIP 分别从 7 个和 5 个白名单文件重建，通过 CRC、安全路径、无嵌套归档/私有状态、源文件逐字节一致性及 4 个本地非空凭据值的精确扫描，0 匹配；干净解压后插件 11/11、Skill 22/22 通过。该扫描不证明未知秘密绝对不存在。两个 OCR Python 文件通过 3.9 语法级解析检查；本机无 Python 3.9，未做该版本运行时测试。插件示例默认 HTTP 地址的传输边界已补充到安装文档，未为消除通用告警而改变已冻结的 0.1.6 源码/哈希。
-- 未验证范围：本环境没有 `new-api` 可执行文件；未在 New API 市场或 moejs 实机安装/运行，未调用真实 OCR 服务或上传文档。离线 fixture 不能确认宿主对选中模型的传递方式，也不能解决根索引 `taskIdParam: "task_id"` 与插件原生路由未显式声明该字段之间的契约差异；两项均保留原实现，未凭猜测改动版本化源码。插件 README 中的真实 New API 双模型测试及 Skill 中 CPU 耗时是用户提供资料对特定版本和硬件的报告，不是本轮新增实测。当前改动保留在工作树，未提交、未推送，因此 README 中 `main` 分支的新 ZIP Raw 链接尚未发布。
+- 未验证范围：本环境没有 `new-api` 可执行文件；未在 New API 市场或 moejs 实机安装/运行，未调用真实 OCR 服务或上传文档。离线 fixture 不能确认宿主对选中模型的传递方式，也不能解决根索引 `taskIdParam: "task_id"` 与插件原生路由未显式声明该字段之间的契约差异；两项均保留原实现，未凭猜测改动版本化源码。插件 README 中的真实 New API 双模型测试及 Skill 中 CPU 耗时是用户提供资料对特定版本和硬件的报告，不是本轮新增实测。
+- 功能提交 `7e01a51 feat: integrate Local OCR plugin and Skill` 包含 22 个路径及 Skill ZIP；`aae43c1 chore: add Local OCR client archives` 单独提交插件 ZIP。初次推送被 pre-push 正确拦截：插件 README 的虚构 OpenAI-style 示例令牌同时触发 Bearer/OpenAI-style key 启发式检查；与 4 个真实本地凭据值无匹配。已改为尖括号占位符并重建插件 ZIP，未使用 `--no-verify` 或弱化 guard。两个当时尚未推送的提交经 soft reset 重新创建，未改写已发布历史。最终普通推送 `70be661..aae43c1` 成功，实际 pre-push 对 85 个唯一 blob 检查通过。
+- 推送后 GitHub 固定提交递归树的 86 个 blob 路径、SHA 和大小与本地一致且未截断；`index.json`、插件源码/README/ZIP、Skill 源码/测试/SKILL/ZIP、`AGENTS.md` 和根 README 共 10 个固定提交 Raw URL 与 Git 字节一致。匿名逐 blob API 审计因限流未完成，未宣称该路径通过；改用同一不可变提交的 codeload ZIP，86 个文件 CRC 通过，对 4 个真实本地凭据值扫描为 0 匹配。这些检查不等于 New API 实机安装或未知秘密不存在的证明。
+- 推送后静态安全审查发现 0.1.6 的 `extractUsage()` 以请求中的 `pages` 或默认 1 页作提交预授权，而可信页数由任务服务稍后提供；多页 PDF 可能以不足的初始预留通过配额检查，完成时结算不能补足提交授权。该风险适用于非零按页价格，不证明离线 fixture 已复现真实扣费绕过。随后纯文档更新补充 README 安全警告：0.1.6 不得启用非零按页计费或作为唯一配额控制，保持零价格配置，或另设可信预留；修复应在后续版本改为可信文档检查或最多 100 页预留，不能覆盖已发布版本源码/哈希。README 变更同步重建插件 ZIP。
 
 ## 已发布：Jihuarst Image 2.6（2026-11-10）
 
@@ -19,7 +22,8 @@
 
 ## 当前基线
 
-- 当前发布基线：`main` 与 `origin/main` 均为 `70be661`；`70be661` 只补充 Image 2.6 的发布状态。前序合并提交 `88703f0` 推送后，GitHub 递归树的 70 个 blob 路径、SHA、大小与本地一致且未截断，脚本、测试、`SKILL.md`、ZIP、状态文档、guard 及设计/计划等 10 个发布敏感文件的固定合并提交 Raw URL 与 Git 字节一致。两个功能分支提交正常推送时 pre-push 均扫描 73 个唯一 blob 并通过，未绕过检查；对 4 个本地非空凭据值检查 208 个历史 blob、70 个远端树条目及发布 ZIP 内容均为 0 匹配。该精确值审计不证明未知历史秘密绝对不存在。
+- 当前发布基线：`main` 与 `origin/main` 均为 `aae43c1`；Local OCR 功能为 `7e01a51`，插件归档为 `aae43c1`，发布核验见本节顶部。随后纯文档更新将补充 0.1.6 的配额预授权限制。
+- `70be661 docs: record Image 2.6 publication` 推送后，GitHub 递归树的 70 个 blob 路径、SHA、大小与本地一致且未截断，脚本、测试、`SKILL.md`、ZIP、状态文档、guard 及设计/计划等 10 个发布敏感文件的固定合并提交 Raw URL 与 Git 字节一致。两个功能分支提交正常推送时 pre-push 均扫描 73 个唯一 blob 并通过，未绕过检查；对 4 个本地非空凭据值检查 208 个历史 blob、70 个远端树条目及发布 ZIP 内容均为 0 匹配。该精确值审计不证明未知历史秘密绝对不存在。
 - 上一已发布基线：`35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。其后 `f656bc9 docs: reorganize maintenance guide and release status` 是本轮分支起点。当时 `35e8930` 的 GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地一致，相关固定提交 Raw URL 均返回 HTTP 200 且字节一致。
 - 本轮发布包括仓库文档整理、Jihuarst Image/Video 离线内存 HTTP fixture、对应官方 ZIP，以及 2026-11-07 的真实付费验证记录。生产 `scripts/generate.py`、New API 插件源码、市场索引及版本均未修改；本地凭据、任务 ID、日志和付费媒体仍只保留在忽略目录。
 - 更早的发布基线：`b6172df docs: record moejs plugin publication`，此前依次为 `a3f2a47 chore: rebuild video plugin client archives`、`6800031 fix: support moejs video gateway URLs`。三个提交已推送至 `origin/main`，Hub 1.3.2、Panel 1.1.2、索引、两个插件源码及两个 ZIP 的 Raw URL 均返回 HTTP 200；当时 GitHub 根树及 66 个 blob 条目与本地 `b6172df` 完全一致，Raw 索引、源码、ZIP 字节和源码 SHA-256 均与本地提交一致。

@@ -24,6 +24,8 @@ This package contains only the gateway integration and its deterministic offline
 
 The example default uses plaintext HTTP. Use it only on a trusted loopback/private network; on an untrusted network, configure HTTPS with normal certificate verification so caller tokens, the internal gateway key and document bytes are not exposed in transit. This preserves the supplied 0.1.6 source and is not a claim that a public TLS endpoint has been deployed or tested.
 
+**0.1.6 pricing limitation:** `extractUsage()` uses a supplied `pages` value where present, or one page otherwise, before the gateway's trusted page count is available; completion usage is reconciled later. A multi-page PDF can therefore be authorized against an insufficient initial reservation. Do not enable nonzero per-page pricing or rely on this hook as the sole quota control for this version. Keep the zero-price configuration above, or enforce a separate trusted quota/reservation, until a later release uses trusted document inspection or reserves the 100-page maximum. This limitation was identified by post-publication static review; actual New API reservation and debit behavior has not been exercised during this repository integration. This warning does not change the runtime source or its indexed hash.
+
 ## Call
 
 ```bash
