@@ -21,6 +21,7 @@ import http.client
 import ipaddress
 import json
 import logging
+import math
 import mimetypes
 import os
 import re
@@ -40,7 +41,8 @@ BASE_URLS = [
     "https://api.jihuarst.top",
     "https://sg-api.jihuarst.top",
 ]
-GPT_MODELS = ["gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2"]
+GPT26_MODELS = ["gpt-image-2.6-sunburst", "gpt-image-2.6-exact", "gpt-image-2.6-flare"]
+GPT_MODELS = [*GPT26_MODELS, "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2"]
 MODELS = [*GPT_MODELS, "hunyuan-image-alpha"]
 EDIT_MODELS = [*GPT_MODELS, "hunyuan-image-alpha-edit"]
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "config.json"
@@ -190,10 +192,14 @@ def _build_image_opener(allow_private: bool = False) -> urllib.request.OpenerDir
     http_handler.connection_class = HTTPConnection
     https_handler = _PinnedHTTPSHandler()
     https_handler.connection_class = HTTPSConnection
-    return urllib.request.build_opener(
+    opener = urllib.request.build_opener(
         urllib.request.ProxyHandler({}), _HTTPOnlyRedirectHandler,
         http_handler, https_handler,
     )
+    # Python's default UA is denied by some public image CDNs. Keep the
+    # validated direct connection and credential isolation unchanged.
+    opener.addheaders = [("User-Agent", "Mozilla/5.0")]
+    return opener
 
 
 _IMAGE_OPENER = _build_image_opener()
@@ -299,16 +305,24 @@ def _build_request(
     size: str | None,
     quality: str | None,
     input_fidelity: str | None,
+    new_fields: dict[str, object],
+    markup: Path | None,
 ) -> tuple[urllib.request.Request, str]:
     """Construct the HTTP request for either the edits or generations mode."""
     # multipart parts are strings, but the JSON body must keep native types:
     # the Go gateway rejects a string "n" with `cannot unmarshal string into uint`.
     common: dict[str, str] = {"model": model, "prompt": prompt, "n": str(count),
-                              "response_format": "b64_json"}
+                              "response_format": "url"}
     if size:
         common["size"] = size
     if quality:
         common["quality"] = quality
+    for name, value in new_fields.items():
+        common[name] = (
+            str(value) if name in {
+                "complexity", "output_format", "frame_count", "frame_duration_ms",
+            } else json.dumps(value, ensure_ascii=False, separators=(",", ":"))
+        )
 
     if references:
         if input_fidelity:
@@ -326,6 +340,9 @@ def _build_request(
                 raise ValueError("mask 只能与单张参考图一起使用")
             filename, payload, mime = _read_reference(mask)
             files.append(("mask", filename, payload, mime))
+        if markup is not None:
+            filename, payload, mime = _read_reference(markup)
+            files.append(("markup", filename, payload, mime))
         body, content_type = _multipart_body(common, files)
         request = urllib.request.Request(
             base_url.rstrip("/") + ENDPOINT_EDITS,
@@ -339,7 +356,8 @@ def _build_request(
         "model": model,
         "prompt": prompt,
         "n": count,
-        "response_format": "b64_json",
+        "response_format": "url",
+        **new_fields,
     }
     if size:
         payload["size"] = size
@@ -354,6 +372,34 @@ def _build_request(
     return request, "generations"
 
 
+def _doctype_end(text: str) -> int:
+    """Find a bounded DOCTYPE end without interpreting its declarations."""
+    quote: str | None = None
+    in_subset = False
+    index = len("<!DOCTYPE")
+    while index < len(text):
+        char = text[index]
+        if quote is not None:
+            if char == quote:
+                quote = None
+        elif text.startswith("<!--", index):
+            comment_end = text.find("-->", index + 4)
+            if comment_end < 0:
+                return -1
+            index = comment_end + 3
+            continue
+        elif char in "\"'":
+            quote = char
+        elif char == "[":
+            in_subset = True
+        elif char == "]":
+            in_subset = False
+        elif char == ">" and not in_subset:
+            return index + 1
+        index += 1
+    return -1
+
+
 def _validate_image_bytes(raw: bytes) -> None:
     if len(raw) > MAX_IMAGE_BYTES:
         raise _ImageDownloadError("图片响应过大")
@@ -361,7 +407,27 @@ def _validate_image_bytes(raw: bytes) -> None:
         b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a",
     )) or (len(raw) >= 12 and raw[:4] == b"RIFF" and raw[8:12] == b"WEBP")
     if not has_signature:
-        raise _ImageDownloadError("图片响应不是支持的图片")
+        try:
+            prefix = raw[:4096].decode("utf-8-sig").lstrip()
+        except UnicodeDecodeError:
+            prefix = ""
+        # SVG is saved as inert bytes; never parse, render, or resolve its links.
+        declaration = re.match(r"<\?xml[^>]*\?>\s*", prefix, re.IGNORECASE)
+        if declaration:
+            prefix = prefix[declaration.end():]
+        while True:
+            comment = re.match(r"<!--(?:[^-]|-(?!->))*-->\s*", prefix)
+            if comment:
+                prefix = prefix[comment.end():]
+                continue
+            if re.match(r"<!DOCTYPE(?=\s)", prefix, re.IGNORECASE):
+                end = _doctype_end(prefix)
+                if end >= 0:
+                    prefix = prefix[end:].lstrip()
+                    continue
+            break
+        if not re.match(r"<svg(?:\s[^>]*)?/?>", prefix, re.IGNORECASE):
+            raise _ImageDownloadError("图片响应不是支持的图片")
 
 
 def _decode_base64_image(encoded: str) -> bytes:
@@ -394,7 +460,9 @@ def _decode_images(
     """
     if not isinstance(result, dict):
         raise ValueError("API 响应必须是 JSON 对象")
-    entries = result.get("data") or []
+    entries = result.get("data")
+    if entries is None:
+        entries = []
     if not isinstance(entries, list):
         raise ValueError("API 响应的 data 必须是数组")
     images: list[bytes] = []
@@ -423,9 +491,13 @@ def _decode_images(
                     raise
                 except urllib.error.HTTPError as exc:
                     exc.close()
-                    raise _ImageDownloadError("图片下载失败") from None
+                    raise _ImageDownloadError(f"图片下载失败 (HTTP {exc.code})") from None
                 except Exception as exc:
-                    raise _ImageDownloadError("图片下载失败") from exc
+                    detail = type(exc).__name__
+                    cause = getattr(exc, "reason", None)
+                    if cause is not None:
+                        detail += f": {type(cause).__name__}"
+                    raise _ImageDownloadError(f"图片下载失败 ({detail})") from None
             else:
                 raise _ImageDownloadError("图片条目缺少可用的 url 或 b64_json")
             _validate_image_bytes(raw)
@@ -525,6 +597,8 @@ def generate_image(
     size: str | None = None,
     quality: str | None = None,
     input_fidelity: str | None = None,
+    new_fields: dict[str, object] | None = None,
+    markup: Path | None = None,
 ) -> GenerationResult:
     """Try models within each URL, returning after the first saved image."""
     if not prompt.strip():
@@ -542,8 +616,29 @@ def generate_image(
             raise ValueError("mask 只能与单张参考图一起使用")
         _read_reference(mask)
 
+    new_fields = new_fields or {}
+    has_gpt26_options = (
+        any(name != "output_format" for name in new_fields)
+        or new_fields.get("output_format") in {"svg", "gif"}
+        or markup is not None
+    )
+    if has_gpt26_options and models is not None and any(
+        not model.startswith("gpt-image-2.6-") for model in models
+    ):
+        raise ValueError("gpt-image-2.6 新参数只能用于 gpt-image-2.6-* 模型")
+    if markup is not None and "markup" in new_fields:
+        raise ValueError("markup 文件与 markup JSON 互斥")
+    if mask is not None and (markup is not None or "markup" in new_fields):
+        raise ValueError("mask 与 markup 互斥")
+    if markup is not None and not references:
+        raise ValueError("markup 需要参考图，只能用于 edits 模式")
+    if markup is not None:
+        _read_reference(markup)
+
     errors: list[str] = []
-    selected_models = models if models is not None else (EDIT_MODELS if references else MODELS)
+    selected_models = models if models is not None else (
+        GPT26_MODELS if has_gpt26_options else (EDIT_MODELS if references else MODELS)
+    )
     total = len(base_urls) * len(selected_models)
     attempt = 0
     for base_url in base_urls:
@@ -554,22 +649,30 @@ def generate_image(
                 request, endpoint = _build_request(
                     base_url, model, prompt, api_key, count,
                     list(references), mask, size, quality, input_fidelity,
+                    new_fields, markup,
                 )
                 with _GENERATION_OPENER.open(request, timeout=timeout) as response:
                     response_body = response.read(MAX_RESPONSE_BYTES + 1)
                 if len(response_body) > MAX_RESPONSE_BYTES:
                     raise ValueError("生成接口响应过大")
                 result = json.loads(response_body.decode("utf-8"))
-                entries = result.get("data") or [] if isinstance(result, dict) else []
+                entries = result.get("data") if isinstance(result, dict) else []
+                if entries is None:
+                    entries = []
                 if not isinstance(entries, list):
                     raise _PaidDeliveryError(
                         "本次生图已计费，但图片响应的 data 不是数组；将尝试下一组合。"
                     )
-                images, failures = _decode_images(result, timeout, count)
                 if not entries:
                     # No artifact was produced: nothing was billed for a result,
                     # so another URL/model combination is still worth trying.
                     raise ValueError("API 未返回任何图片")
+                if len(entries) != count:
+                    raise _PaidDeliveryError(
+                        f"本次生图已计费，但图片条目数量不匹配（请求 {count} 张，"
+                        f"返回 {len(entries)} 个）；将尝试下一组合。"
+                    )
+                images, failures = _decode_images(result, timeout, count)
                 if len(images) != count:
                     if not failures:
                         failures.append(
@@ -625,6 +728,21 @@ def generate_image(
     )
 
 
+def _json_value(text: str) -> object:
+    """Parse an arbitrary non-null API extension value before any paid request."""
+    try:
+        value = json.loads(text)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"JSON 参数无效: {exc.msg}") from exc
+    try:
+        json.dumps(value, allow_nan=False)
+    except ValueError as exc:
+        raise ValueError("JSON 参数包含非有限数值") from exc
+    if value is None:
+        raise ValueError("JSON 参数不能为 null")
+    return value
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="使用 jihuarst 生成或编辑图片（支持参考图 / mask / 多图参考）"
@@ -643,6 +761,21 @@ def _build_parser() -> argparse.ArgumentParser:
                         choices=["low", "medium", "high", "auto"], help="生成质量")
     parser.add_argument("--input-fidelity", default=None, choices=["low", "high"],
                         help="参考图保真度（仅 edits 模式）")
+    parser.add_argument("--output-format", default=None,
+                        choices=["png", "jpeg", "webp", "svg", "gif"],
+                        help="请求输出格式；svg/gif 仅 gpt-image-2.6")
+    parser.add_argument("--complexity", default=None,
+                        choices=["low", "medium", "high"], help="gpt-image-2.6 复杂度")
+    parser.add_argument("--svg", default=None, metavar="JSON",
+                        help='gpt-image-2.6 SVG 配置，如 true 或 {"model":"..."}')
+    parser.add_argument("--frame-count", type=int, default=None,
+                        help="GIF 帧数（2..16，仅 gpt-image-2.6）")
+    parser.add_argument("--frame-duration-ms", type=int, default=None,
+                        help="GIF 帧时长（>= 20 毫秒，仅 gpt-image-2.6）")
+    parser.add_argument("--markup", type=Path, default=None, metavar="IMAGE",
+                        help="改图标注图层（本地图片，仅 gpt-image-2.6 edits）")
+    parser.add_argument("--markup-json", default=None, metavar="JSON",
+                        help="改图标注图层 JSON（与 --markup 互斥）")
     parser.add_argument("-n", "--count", type=int, default=1, help="生成数量")
     parser.add_argument("--timeout", type=float, default=180.0, help="单次请求超时秒数")
     parser.add_argument("--model", default=None, help="仅使用指定模型，跳过其余模型")
@@ -667,6 +800,42 @@ def main(argv: Iterable[str] | None = None) -> int:
                     "尺寸 %s 总像素低于阈值，上游可能抬升为 1254x1254", args.size
                 )
 
+    if args.markup is not None and args.markup_json is not None:
+        parser.error("--markup 与 --markup-json 互斥")
+    if args.mask is not None and (args.markup is not None or args.markup_json is not None):
+        parser.error("mask 与 markup 互斥")
+    if args.markup is not None and not args.ref:
+        parser.error("markup 需要参考图，只能用于 edits 模式")
+    if not math.isfinite(args.timeout) or args.timeout <= 0:
+        parser.error("--timeout 必须是正有限秒数")
+    try:
+        new_fields = {
+            name: value for name, value in {
+                "complexity": args.complexity,
+                "output_format": args.output_format,
+                "svg": _json_value(args.svg) if args.svg is not None else None,
+                "frame_count": args.frame_count,
+                "frame_duration_ms": args.frame_duration_ms,
+                "markup": (
+                    _json_value(args.markup_json) if args.markup_json is not None else None
+                ),
+            }.items() if value is not None
+        }
+        if "frame_count" in new_fields and not 2 <= new_fields["frame_count"] <= 16:
+            raise ValueError("frame_count 必须在 2..16 之间")
+        if "frame_duration_ms" in new_fields and new_fields["frame_duration_ms"] < 20:
+            raise ValueError("frame_duration_ms 必须 >= 20")
+        if "complexity" in new_fields and not new_fields["complexity"].strip():
+            raise ValueError("complexity 不能为空")
+        if (
+            (any(name != "output_format" for name in new_fields)
+             or args.output_format in {"svg", "gif"} or args.markup is not None)
+            and args.model is not None and not args.model.startswith("gpt-image-2.6-")
+        ):
+            raise ValueError("gpt-image-2.6 新参数只能用于 gpt-image-2.6-* 模型")
+    except ValueError as exc:
+        parser.error(str(exc))
+
     models = [args.model] if args.model else None
     base_urls = [args.base_url] if args.base_url else BASE_URLS
 
@@ -684,6 +853,8 @@ def main(argv: Iterable[str] | None = None) -> int:
             size=args.size,
             quality=args.quality,
             input_fidelity=args.input_fidelity,
+            new_fields=new_fields,
+            markup=args.markup,
         )
     except (OSError, ValueError, RuntimeError) as exc:
         LOGGER.error("%s", exc)
