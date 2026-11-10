@@ -114,7 +114,7 @@ After every upgrade to a distributable project, regenerate its client ZIP withou
 - The six allowlisted ZIPs undergo bounded offline entry, path, nested-archive, and expansion checks plus the same private-path and exact-credential scans. Malformed or unsupported ZIPs fail closed.
 - Test the guard from the repository root with `node --test .githooks/check-push.test.js`. Keep it offline and fail closed.
 - Never use `--no-verify`, weaken a rule, or suppress a finding to make a real push succeed. Fix the source or remove the content from every outgoing commit. This heuristic cannot prove absence of unknown secrets.
-- Distinguish `--all` history findings from outgoing-push findings. Current archive-path policy also applies to historical paths, so formerly allowlisted but removed ZIPs can block `--all`; record the path and reason. Do not mistake this known limitation for an outgoing-push failure, bypass it, or rewrite published history without authorization.
+- Distinguish `--all` history findings from outgoing-push findings. Current archive-path policy also applies to historical paths, so formerly allowlisted but removed ZIPs can block `--all`; record the path and reason. For a new remote ref, the guard excludes commits reachable from existing remote-tracking refs, including `remote/HEAD`, and still scans every genuinely outgoing commit. Run repository checks from the root (or with `git -C <root>`) so allowlisted paths are not made relative to a subdirectory. Do not mistake known history/path findings for a need to bypass the guard or rewrite published history without authorization.
 - A normal pre-push pass does not prove all historical blobs are safe.
 
 ### Push verification

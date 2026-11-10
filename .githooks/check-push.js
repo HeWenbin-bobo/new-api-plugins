@@ -272,7 +272,7 @@ function inspect(path, data, secrets) {
 }
 
 function objectsForRange(range) {
-  const commits = text(git(['rev-list', range])).trim().split('\n').filter(Boolean);
+  const commits = text(git(['rev-list', ...(Array.isArray(range) ? range : [range])])).trim().split('\n').filter(Boolean);
   const blobs = new Map();
   for (const commit of commits) {
     const rows = git(['ls-tree', '-r', '-z', commit]);
@@ -287,17 +287,27 @@ function objectsForRange(range) {
   return blobs;
 }
 
+function addObjects(blobs, range) {
+  for (const [id, paths] of objectsForRange(range)) {
+    if (!blobs.has(id)) blobs.set(id, new Set());
+    for (const path of paths) blobs.get(id).add(path);
+  }
+}
+
 function stdinObjects() {
   const blobs = new Map();
+  const newRemoteIds = [];
   for (const line of text(readFileSync(0)).split('\n').filter(Boolean)) {
     const [, localId, , remoteId] = line.trim().split(/\s+/);
     if (!localId || localId === ZERO) continue;
-    const range = remoteId && remoteId !== ZERO ? `${remoteId}..${localId}` : localId;
-    for (const [id, paths] of objectsForRange(range)) {
-      if (!blobs.has(id)) blobs.set(id, new Set());
-      for (const path of paths) blobs.get(id).add(path);
-    }
+    if (remoteId && remoteId !== ZERO) addObjects(blobs, `${remoteId}..${localId}`);
+    else newRemoteIds.push(localId);
   }
+  // A new remote ref has no exclusion base. Its genuinely outgoing commits are
+  // the ones absent from every other remote-tracking ref, including remote/HEAD.
+  const exclusions = text(git(['for-each-ref', '--format=%(objectname)', 'refs/remotes']))
+    .trim().split('\n').filter(Boolean);
+  for (const localId of newRemoteIds) addObjects(blobs, [localId, '--not', ...exclusions]);
   return blobs;
 }
 

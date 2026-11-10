@@ -500,6 +500,80 @@ test('fails closed when a local config is too large to audit', (t) => {
   assert.match(result.stderr, /too large to audit|Cannot inspect local configuration/);
 });
 
+test('a new remote branch excludes published history but scans new commits', (t) => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const cwd = fixture(t);
+  const remote = join(cwd, 'remote.git');
+  const source = join(cwd, 'source');
+  git(cwd, ['init', '-q', '--bare', remote]);
+  git(cwd, ['clone', '-q', remote, source]);
+  git(source, ['config', 'user.name', 'Offline Test']);
+  git(source, ['config', 'user.email', 'offline@example.invalid']);
+  git(source, ['config', 'core.hooksPath', '.githooks']);
+  const hooks = join(source, '.githooks');
+  mkdirSync(hooks, { recursive: true });
+  for (const name of ['pre-push', 'check-push.js']) {
+    const file = join(hooks, name);
+    writeFileSync(file, readFileSync(join(root, '.githooks', name)), { mode: name === 'pre-push' ? 0o755 : 0o644 });
+  }
+  git(source, ['add', '.githooks']);
+  writeFileSync(join(source, 'old.zip'), 'published legacy archive\n');
+  git(source, ['add', '-f', 'old.zip']);
+  git(source, ['commit', '-qm', 'published history']);
+  let result = spawnSync('git', ['push', '-q', '--no-verify', 'origin', 'HEAD:main'], { cwd: source, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  git(source, ['rm', '-q', 'old.zip']);
+  writeFileSync(join(source, 'safe.txt'), 'new safe content\n');
+  git(source, ['add', 'safe.txt']);
+  git(source, ['commit', '-qm', 'safe feature']);
+  result = spawnSync('git', ['push', '--dry-run', 'origin', 'HEAD:feature'], { cwd: source, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  writeFileSync(join(source, 'config.local.json'), `{"api_key":"${fakeSecret}"}`);
+  git(source, ['add', '-f', 'config.local.json']);
+  git(source, ['commit', '-qm', 'unsafe feature']);
+  result = spawnSync('git', ['push', '--dry-run', 'origin', 'HEAD:feature'], { cwd: source, encoding: 'utf8' });
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /private local configuration/);
+  assert.ok(!result.stderr.includes(fakeSecret), 'wrapper diagnostics leaked the fixture secret');
+});
+
+test('the real pre-push wrapper preserves root paths from a subdirectory', (t) => {
+  const root = fileURLToPath(new URL('..', import.meta.url));
+  const cwd = fixture(t);
+  const remote = join(cwd, 'remote.git');
+  const source = join(cwd, 'source');
+  git(cwd, ['init', '-q', '--bare', remote]);
+  git(cwd, ['clone', '-q', remote, source]);
+  git(source, ['config', 'user.name', 'Offline Test']);
+  git(source, ['config', 'user.email', 'offline@example.invalid']);
+  git(source, ['config', 'core.hooksPath', '.githooks']);
+  const hooks = join(source, '.githooks');
+  mkdirSync(hooks, { recursive: true });
+  for (const name of ['pre-push', 'check-push.js']) {
+    const file = join(hooks, name);
+    writeFileSync(file, readFileSync(join(root, '.githooks', name)), { mode: name === 'pre-push' ? 0o755 : 0o644 });
+  }
+  git(source, ['add', '.githooks']);
+  writeZip(source, releaseZips[2], makeZip([{ name: 'notes.txt', data: 'safe\n' }]));
+  git(source, ['add', '-f', releaseZips[2]]);
+  git(source, ['commit', '-qm', 'release archive']);
+  let result = spawnSync('git', ['push', '-q', '--no-verify', 'origin', 'HEAD:main'], { cwd: source, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  writeZip(source, releaseZips[2], makeZip([{ name: 'notes.txt', data: 'updated\n' }]));
+  git(source, ['add', '-f', releaseZips[2]]);
+  git(source, ['commit', '-qm', 'safe update']);
+  const subdirectory = dirname(join(source, releaseZips[2]));
+  result = spawnSync('git', ['push', '--dry-run', 'origin', 'HEAD:main'], { cwd: subdirectory, encoding: 'utf8' });
+  assert.equal(result.status, 0, result.stderr);
+  writeFileSync(join(subdirectory, 'config.local.json'), `{"api_key":"${fakeSecret}"}`);
+  git(source, ['add', '-f', releaseZips[2].replace(/[^/]+$/, 'config.local.json')]);
+  git(source, ['commit', '-qm', 'unsafe subdirectory update']);
+  result = spawnSync('git', ['push', '--dry-run', 'origin', 'HEAD:main'], { cwd: subdirectory, encoding: 'utf8' });
+  assert.notEqual(result.status, 0, result.stderr);
+  assert.match(result.stderr, /private local configuration/);
+  assert.ok(!result.stderr.includes(fakeSecret), 'wrapper diagnostics leaked the fixture secret');
+});
+
 test('the real pre-push wrapper blocks a dangerous outgoing commit', (t) => {
   const root = fileURLToPath(new URL('..', import.meta.url));
   const cwd = fixture(t);
