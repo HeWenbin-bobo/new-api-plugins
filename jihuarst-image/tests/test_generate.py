@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import importlib.util
 import io
 import json
@@ -22,10 +23,13 @@ EXPECTED_URLS = [
     "https://api.jihuarst.top",
     "https://sg-api.jihuarst.top",
 ]
-EXPECTED_MODELS = [
+GPT26_MODELS = [
+    "gpt-image-2.6-sunburst", "gpt-image-2.6-exact", "gpt-image-2.6-flare",
+]
+EXPECTED_MODELS = GPT26_MODELS + [
     "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2", "hunyuan-image-alpha",
 ]
-EXPECTED_EDIT_MODELS = [
+EXPECTED_EDIT_MODELS = GPT26_MODELS + [
     "gpt-image-2.5", "gpt-image-2.5-flare", "gpt-image-2", "hunyuan-image-alpha-edit",
 ]
 IMAGE_BYTES = b"\x89PNG\r\n\x1a\njihuarst-test"
@@ -105,6 +109,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self.server.download_requests += 1
         self.server.download_authorization = self.headers.get("Authorization")
+        self.server.download_headers = dict(self.headers.items())
         if self.server.redirect_target:
             self.send_response(302)
             self.send_header("Location", self.server.redirect_target)
@@ -375,8 +380,8 @@ class GenerateTests(unittest.TestCase):
                                                 [url], EXPECTED_MODELS, 2)
         request = server.requests[0]
         self.assertEqual("/v1/images/generations", request["path"])
-        self.assertEqual("gpt-image-2.5", request["payload"]["model"])
-        self.assertEqual("b64_json", request["payload"]["response_format"])
+        self.assertEqual(GPT26_MODELS[0], request["payload"]["model"])
+        self.assertEqual("url", request["payload"]["response_format"])
         # The Go gateway rejects a string here: `cannot unmarshal string into uint`.
         self.assertIsInstance(request["payload"]["n"], int)
         self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
@@ -396,6 +401,7 @@ class GenerateTests(unittest.TestCase):
                                        [url], ["hunyuan-image-alpha"], 2)
         self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
         self.assertIsNone(server.download_authorization)
+        self.assertEqual("Mozilla/5.0", server.download_headers.get("User-Agent"))
 
     def test_private_image_url_is_rejected_before_download(self) -> None:
         self.module._IMAGE_OPENER = self.module._build_image_opener()
@@ -575,6 +581,34 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(2, len(server.requests))
         self.assertEqual("second", result.model)
 
+    def test_download_error_reports_safe_status_or_exception_category(self) -> None:
+        with fake_api([200], remote_image=True, download_status=403) as (server, url):
+            with self.assertRaises(RuntimeError) as raised:
+                self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["gpt-image-2.6-exact"], 2,
+                )
+        self.assertIn("图片下载失败 (HTTP 403)", str(raised.exception))
+        self.assertNotIn("image.png", str(raised.exception))
+
+        signed_url = "https://images.example/private.png?token=secret-token-value"
+        module = self.module
+
+        class FailingOpener:
+            def open(self, request, timeout):
+                raise module.urllib.error.URLError(
+                    TimeoutError(f"handshake timed out; {signed_url}")
+                )
+
+        with mock.patch.object(self.module, "_IMAGE_OPENER", FailingOpener()):
+            images, failures = self.module._decode_images(
+                {"data": [{"url": signed_url}]}, 2, 1,
+            )
+        self.assertEqual([], images)
+        self.assertIn("URLError", failures[0])
+        self.assertIn("TimeoutError", failures[0])
+        self.assertNotIn("private.png", failures[0])
+        self.assertNotIn("secret-token-value", failures[0])
+
     def test_download_failure_falls_back_to_next_model(self) -> None:
         with fake_api([200, 200], remote_image=True,
                       download_status=[500, 200]) as (server, url):
@@ -692,6 +726,42 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual(1, len(second.requests))
         self.assertEqual(IMAGE_BYTES, self.output.read_bytes())
 
+    def test_svg_and_gif_are_saved_as_inert_bytes(self) -> None:
+        cases = [
+            ("svg", b'<?xml version="1.0"?><svg xmlns="http://www.w3.org/2000/svg"><path/></svg>'),
+            ("gif", b"GIF89a" + b"test-animation"),
+        ]
+        for suffix, artifact in cases:
+            with self.subTest(suffix=suffix), fake_api([200], payloads=[{
+                "data": [{"b64_json": base64.b64encode(artifact).decode()}],
+            }]) as (server, url):
+                output = Path(self.tempdir.name) / f"out.{suffix}"
+                result = self.module.generate_image(
+                    "vector", output, "test-key", [url], ["gpt-image-2.6-exact"], 2,
+                )
+                self.assertEqual(artifact, output.read_bytes())
+                self.assertEqual((output,), result.paths)
+
+    def test_svg_prologs_are_recognized_without_xml_parsing(self) -> None:
+        documents = [
+            b'<?xml version="1.0"?><!-- comment --><svg/>',
+            b'<!-- one --><!-- two --><svg/>',
+            b'<!DOCTYPE svg><!-- comment --><svg/>',
+            b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY x "value">]><svg/>',
+            b'<?xml version="1.0"?><!DOCTYPE svg [<!ENTITY bracket "]">]><svg/>',
+        ]
+        for document in documents:
+            with self.subTest(document=document):
+                self.module._validate_image_bytes(document)
+
+    def test_svg_validation_rejects_non_svg_or_malformed_markup(self) -> None:
+        invalid = [b"<html><svg/></html>", b"<svgx/>", b"<svg onload=alert(1)",
+                   b"\xff<svg/>", b""]
+        for artifact in invalid:
+            with self.subTest(artifact=artifact):
+                with self.assertRaises(self.module._ImageDownloadError):
+                    self.module._validate_image_bytes(artifact)
+
     def test_reference_mode_uses_edits_multipart(self) -> None:
         with fake_api([200]) as (server, url):
             result = self.module.generate_image("paint it blue", self.output, "test-key",
@@ -702,6 +772,7 @@ class GenerateTests(unittest.TestCase):
         self.assertTrue(request["content_type"].startswith("multipart/form-data"))
         self.assertEqual(["image"], request["files"])
         self.assertEqual("paint it blue", request["payload"]["prompt"])
+        self.assertEqual("url", request["payload"]["response_format"])
         self.assertEqual("edits", result.endpoint)
 
     def test_multiple_references_use_array_field(self) -> None:
@@ -741,6 +812,250 @@ class GenerateTests(unittest.TestCase):
         self.assertIn("参考图不存在", str(raised.exception))
         self.assertEqual([], server.requests)
 
+    def test_output_format_is_forwarded_in_json_and_multipart(self) -> None:
+        for references in ([], [self.ref]):
+            with self.subTest(mode="edits" if references else "generations"), \
+                    fake_api([200]) as (server, url):
+                self.module.generate_image(
+                    "vector", self.output, "test-key", [url],
+                    ["gpt-image-2.6-exact"], 2, references=references,
+                    new_fields={"output_format": "svg", "svg": {"model": "gpt-5.4-mini"}},
+                )
+                payload = server.requests[0]["payload"]
+                self.assertEqual("svg", payload["output_format"])
+                expected_svg = '{"model":"gpt-5.4-mini"}' if references else {"model": "gpt-5.4-mini"}
+                self.assertEqual(expected_svg, payload["svg"])
+
+    def test_vector_formats_select_gpt26_but_raster_format_does_not(self) -> None:
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image(
+                    "animation", self.output, "test-key", [url], timeout=2,
+                    new_fields={"output_format": "gif", "frame_count": 2},
+                )
+        self.assertEqual(GPT26_MODELS, [r["payload"]["model"] for r in server.requests])
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image(
+                    "raster", self.output, "test-key", [url], timeout=2,
+                    new_fields={"output_format": "jpeg"},
+                )
+        self.assertEqual(EXPECTED_MODELS, [r["payload"]["model"] for r in server.requests])
+
+    def test_cli_output_format_choices_and_model_validation(self) -> None:
+        original_loader = self.module.load_api_key
+        self.module.load_api_key = lambda: "test-key"
+        self.addCleanup(setattr, self.module, "load_api_key", original_loader)
+        with fake_api([200]) as (server, url):
+            status = self.module.main([
+                "vector", "--model", "gpt-image-2.6-exact", "--base-url", url,
+                "--output-format", "svg", "--svg", '{"model":"gpt-5.4-mini"}',
+                "--timeout", "2", "-o", str(self.output),
+            ])
+        self.assertEqual(0, status)
+        self.assertEqual("svg", server.requests[0]["payload"]["output_format"])
+        for output_format, model in (("svg", "gpt-image-2.5"), ("tiff", "gpt-image-2.6-exact")):
+            with self.subTest(output_format=output_format), fake_api([200]) as (server, url), \
+                    contextlib.redirect_stderr(io.StringIO()):
+                with self.assertRaisesRegex(SystemExit, "2"):
+                    self.module.main([
+                        "vector", "--model", model, "--base-url", url,
+                        "--output-format", output_format,
+                    ])
+                self.assertEqual([], server.requests)
+
+    def test_gpt26_fields_keep_native_json_types(self) -> None:
+        fields = {
+            "complexity": "low",
+            "svg": {"model": "gpt-image-2.6-exact"},
+            "frame_count": 2,
+            "frame_duration_ms": 20,
+            "markup": {"image_url": "https://example.com/markup.png"},
+        }
+        with fake_api([200]) as (server, url):
+            self.module.generate_image("diagram", self.output, "test-key",
+                                       [url], ["gpt-image-2.6-exact"], 2,
+                                       new_fields=fields)
+        self.assertEqual(fields, {
+            key: server.requests[0]["payload"][key] for key in fields
+        })
+
+    def test_gpt26_json_values_preserve_exact_types_and_unicode(self) -> None:
+        cases = [
+            ("svg", True),
+            ("svg", "vector"),
+            ("svg", ["layer", 1]),
+            ("markup", {"label": "保留图层"}),
+        ]
+        for name, value in cases:
+            with self.subTest(name=name, value=value), fake_api([200]) as (server, url):
+                self.module.generate_image(
+                    "diagram", self.output, "test-key", [url],
+                    ["gpt-image-2.6-exact"], 2, new_fields={name: value},
+                )
+                self.assertEqual(value, server.requests[0]["payload"][name])
+
+    def test_gpt26_fields_and_local_markup_use_multipart(self) -> None:
+        fields = {
+            "complexity": "low", "svg": True, "frame_count": 2,
+            "frame_duration_ms": 20,
+        }
+        with fake_api([200]) as (server, url):
+            self.module.generate_image("annotate", self.output, "test-key",
+                                       [url], ["gpt-image-2.6-exact"], 2,
+                                       references=[self.ref], markup=self.mask,
+                                       new_fields=fields)
+        request = server.requests[0]
+        self.assertEqual({
+            "complexity": "low", "svg": "true", "frame_count": "2",
+            "frame_duration_ms": "20",
+        }, {key: request["payload"][key] for key in fields})
+        self.assertEqual(["image", "markup"], request["files"])
+
+    def test_markup_json_is_sent_as_markup_multipart_field(self) -> None:
+        markup = {"image_url": "https://example.com/markup.png"}
+        with fake_api([200]) as (server, url):
+            self.module.generate_image("annotate", self.output, "test-key",
+                                       [url], ["gpt-image-2.6-exact"], 2,
+                                       references=[self.ref],
+                                       new_fields={"markup": markup})
+        self.assertEqual(json.dumps(markup, separators=(",", ":")),
+                         server.requests[0]["payload"]["markup"])
+
+    def test_gpt26_options_select_only_gpt26_models(self) -> None:
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image("diagram", self.output, "test-key",
+                                           [url], timeout=2, new_fields={"svg": True})
+        self.assertEqual(GPT26_MODELS,
+                         [r["payload"]["model"] for r in server.requests])
+
+    def test_local_markup_selects_only_gpt26_models(self) -> None:
+        with fake_api([500]) as (server, url):
+            with self.assertRaises(RuntimeError):
+                self.module.generate_image("annotate", self.output, "test-key",
+                                           [url], timeout=2, references=[self.ref],
+                                           markup=self.mask)
+        self.assertEqual(GPT26_MODELS,
+                         [r["payload"]["model"] for r in server.requests])
+
+    def test_markup_and_mask_are_rejected_before_requests(self) -> None:
+        for options in (
+            {"markup": self.mask},
+            {"new_fields": {"markup": {"layer": 1}}},
+        ):
+            with self.subTest(options=options), fake_api([200]) as (server, url):
+                with self.assertRaisesRegex(ValueError, "mask.*markup.*互斥"):
+                    self.module.generate_image(
+                        "annotate", self.output, "test-key", [url],
+                        ["gpt-image-2.6-exact"], 2, references=[self.ref],
+                        mask=self.mask, **options,
+                    )
+                self.assertEqual([], server.requests)
+
+    def test_direct_markup_file_rejects_json_or_missing_reference(self) -> None:
+        cases = [
+            {"markup": self.mask},
+            {"references": [self.ref], "markup": self.mask,
+             "new_fields": {"markup": {"layer": 1}}},
+        ]
+        for options in cases:
+            with self.subTest(options=options), fake_api([200]) as (server, url):
+                with self.assertRaisesRegex(ValueError, "markup"):
+                    self.module.generate_image(
+                        "annotate", self.output, "test-key", [url],
+                        ["gpt-image-2.6-exact"], 2, **options,
+                    )
+                self.assertEqual([], server.requests)
+
+    def test_new_options_require_gpt26_model(self) -> None:
+        with fake_api([200]) as (server, url):
+            with self.assertRaisesRegex(ValueError, "gpt-image-2.6"):
+                self.module.generate_image("diagram", self.output, "test-key",
+                                           [url], ["gpt-image-2.5"], 2,
+                                           new_fields={"svg": True})
+        self.assertEqual([], server.requests)
+
+    def test_cli_json_values_and_local_markup_are_forwarded(self) -> None:
+        original_loader = self.module.load_api_key
+        self.module.load_api_key = lambda: "test-key"
+        self.addCleanup(setattr, self.module, "load_api_key", original_loader)
+        cases = [
+            (["--svg", '{"model":"vector"}', "--markup-json", '{"layer":1}'], "json"),
+            (["--svg", "true", "--markup", str(self.mask)], "file"),
+        ]
+        for extra, markup_kind in cases:
+            with self.subTest(markup=markup_kind), fake_api([200]) as (server, url):
+                status = self.module.main([
+                    "diagram", "-r", str(self.ref), "--model", "gpt-image-2.6-exact",
+                    "--base-url", url, "--complexity", "low", "--frame-count", "2",
+                    "--frame-duration-ms", "20", "--timeout", "2",
+                    "-o", str(self.output), *extra,
+                ])
+                self.assertEqual(0, status)
+                payload = server.requests[0]["payload"]
+                self.assertEqual("low", payload["complexity"])
+                self.assertEqual("2", payload["frame_count"])
+                self.assertEqual("20", payload["frame_duration_ms"])
+                if markup_kind == "json":
+                    self.assertEqual('{"model":"vector"}', payload["svg"])
+                    self.assertEqual('{"layer":1}', payload["markup"])
+                else:
+                    self.assertEqual("true", payload["svg"])
+                    self.assertEqual(["image", "markup"], server.requests[0]["files"])
+
+    def test_cli_markup_json_uses_generation_json_without_references(self) -> None:
+        original_loader = self.module.load_api_key
+        self.module.load_api_key = lambda: "test-key"
+        self.addCleanup(setattr, self.module, "load_api_key", original_loader)
+        markup = {"layer": 1, "label": "保留"}
+        with fake_api([200]) as (server, url):
+            status = self.module.main([
+                "annotate", "--model", "gpt-image-2.6-exact", "--base-url", url,
+                "--markup-json", json.dumps(markup, ensure_ascii=False),
+                "--timeout", "2", "-o", str(self.output),
+            ])
+        self.assertEqual(0, status)
+        self.assertEqual("/v1/images/generations", server.requests[0]["path"])
+        self.assertEqual(markup, server.requests[0]["payload"]["markup"])
+
+    def test_invalid_markup_combinations_fail_before_requests(self) -> None:
+        cases = [
+            (["--markup", str(self.mask)], "需要参考图"),
+            (["-r", str(self.ref), "--markup", str(self.mask),
+              "--markup-json", "{}"], "互斥"),
+            (["-r", str(self.ref), "--mask", str(self.mask),
+              "--markup-json", "{}"], "互斥"),
+            (["-r", str(self.ref), "--mask", str(self.mask),
+              "--markup", str(self.mask)], "互斥"),
+            (["-r", str(self.ref), "--markup-json", "not-json"], "JSON"),
+            (["-r", str(self.ref), "--markup-json", "null"], "null"),
+            (["-r", str(self.ref), "--frame-count", "-1"], "2..16"),
+            (["-r", str(self.ref), "--frame-count", "1"], "2..16"),
+            (["-r", str(self.ref), "--frame-count", "17"], "2..16"),
+            (["-r", str(self.ref), "--frame-duration-ms", "0"], ">= 20"),
+            (["-r", str(self.ref), "--frame-duration-ms", "19"], ">= 20"),
+            (["--complexity", "   "], "complexity"),
+            (["--complexity", "ultra"], "complexity"),
+            (["--timeout", "0"], "timeout"),
+            (["--timeout", "-1"], "timeout"),
+            (["--timeout", "nan"], "timeout"),
+            (["--timeout", "inf"], "timeout"),
+            (["--svg", "NaN"], "JSON"),
+            (["--svg", '{"value":Infinity}'], "JSON"),
+        ]
+        for extra, message in cases:
+            with self.subTest(extra=extra), fake_api([200]) as (server, url), \
+                    contextlib.redirect_stderr(io.StringIO()) as stderr:
+                arguments = [
+                    "diagram", "--model", "gpt-image-2.6-exact",
+                    "--base-url", url, *extra,
+                ]
+                with self.assertRaisesRegex(SystemExit, "2"):
+                    self.module.main(arguments)
+                self.assertIn(message, stderr.getvalue())
+                self.assertEqual([], server.requests)
+
     def test_size_quality_and_fidelity_are_forwarded(self) -> None:
         with fake_api([200]) as (server, url):
             self.module.generate_image("cat", self.output, "test-key",
@@ -753,7 +1068,7 @@ class GenerateTests(unittest.TestCase):
         self.assertEqual("high", payload["input_fidelity"])
 
     def test_tries_every_model_on_preferred_url_before_succeeding(self) -> None:
-        with fake_api([500, 500, 500, 200]) as (server, url):
+        with fake_api([500, 500, 500, 500, 500, 500, 200]) as (server, url):
             result = self.module.generate_image("cat", self.output, "test-key",
                                                [url], EXPECTED_MODELS, 2)
         self.assertEqual(EXPECTED_MODELS, [r["payload"]["model"] for r in server.requests])
@@ -766,7 +1081,7 @@ class GenerateTests(unittest.TestCase):
                                                [first_url, second_url],
                                                EXPECTED_MODELS, 2)
         self.assertEqual(EXPECTED_MODELS, [r["payload"]["model"] for r in first.requests])
-        self.assertEqual(["gpt-image-2.5"], [r["payload"]["model"] for r in second.requests])
+        self.assertEqual([GPT26_MODELS[0]], [r["payload"]["model"] for r in second.requests])
         self.assertEqual(second_url, result.base_url)
 
     def test_reports_unavailable_only_after_all_combinations_fail(self) -> None:
@@ -801,6 +1116,40 @@ class GenerateTests(unittest.TestCase):
         self.assertNotIn("test-key", message)
         self.assertFalse(self.output.exists())
 
+    def test_empty_entries_fall_back_without_paid_delivery_error(self) -> None:
+        with fake_api([200, 200], payloads=[{"data": []}, {"data": []}]) as (server, url):
+            with self.assertRaisesRegex(
+                    RuntimeError, r"first: ValueError: API 未返回任何图片"):
+                self.module.generate_image(
+                    "cat", self.output, "test-key", [url], ["first", "second"], 2,
+                )
+        self.assertEqual(2, len(server.requests))
+        self.assertFalse(self.output.exists())
+
+    def test_missing_or_null_data_preserves_empty_response_fallback(self) -> None:
+        for response in ({}, {"data": None}):
+            with self.subTest(response=response), fake_api([200], payloads=[response]) as (server, url):
+                with self.assertRaisesRegex(
+                        RuntimeError, r"first: ValueError: API 未返回任何图片"):
+                    self.module.generate_image(
+                        "cat", self.output, "test-key", [url], ["first"], 2,
+                    )
+                self.assertEqual(1, len(server.requests))
+                self.assertFalse(self.output.exists())
+                self.assertEqual(([], []), self.module._decode_images(response, 2, 1))
+
+    def test_falsy_non_array_data_is_a_paid_delivery_error(self) -> None:
+        for value in (False, 0, "", {}):
+            with self.subTest(value=value), fake_api([200], payloads=[{
+                "data": value,
+            }]) as (server, url):
+                with self.assertRaisesRegex(RuntimeError, "data 不是数组"):
+                    self.module.generate_image(
+                        "cat", self.output, "test-key", [url], ["first"], 2,
+                    )
+                self.assertEqual(1, len(server.requests))
+                self.assertFalse(self.output.exists())
+
     def test_empty_entries_fall_back_to_next_model(self) -> None:
         with fake_api([200, 200], payloads=[{"data": []}, None]) as (server, url):
             result = self.module.generate_image(
@@ -825,6 +1174,19 @@ class GenerateTests(unittest.TestCase):
         self.assertTrue(all(path.read_bytes() == IMAGE_BYTES for path in targets))
         self.assertEqual(2, len(server.requests))
         self.assertEqual("second", result.model)
+
+    def test_extra_entries_fall_back_without_saving_partial_delivery(self) -> None:
+        encoded = base64.b64encode(b"GIF89aanimation").decode()
+        with fake_api([200, 200], payloads=[
+            {"data": [{"b64_json": encoded}, {"b64_json": encoded}]},
+            {"data": [{"b64_json": encoded}]},
+        ]) as (server, url):
+            result = self.module.generate_image(
+                "animate", self.output, "test-key", [url], ["first", "second"], 2,
+            )
+        self.assertEqual(2, len(server.requests))
+        self.assertEqual("second", result.model)
+        self.assertEqual(b"GIF89aanimation", self.output.read_bytes())
 
     def test_count_above_one_writes_numbered_files(self) -> None:
         module_response = [{"b64_json": base64.b64encode(IMAGE_BYTES).decode()}] * 2
