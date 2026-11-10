@@ -1,0 +1,8 @@
+{
+  "api_key": "",
+  "base_url": "",
+  "model": "mineru-pipeline-cpu",
+  "timeout": 30,
+  "poll_interval": 3,
+  "max_wait": 1800
+}

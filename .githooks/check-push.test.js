@@ -9,12 +9,15 @@ import test from 'node:test';
 
 const checker = fileURLToPath(new URL('./check-push.js', import.meta.url));
 const fakeSecret = `fixture-${'x'.repeat(32)}-not-a-real-credential`;
-const releaseZips = [  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
+const releaseZips = [
+  'video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip',
   'video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip',
   'jihuarst-image/jihuarst-image.zip',
   'jihuarst-video/jihuarst-video.zip',
   'zaiwen-image-generation/zaiwen-image-generation.zip',
   'unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip',
+  'local-ocr-task-plugin/local-ocr-task-plugin.zip',
+  'local-document-ocr/local-document-ocr.zip',
 ];
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {

@@ -1,0 +1,347 @@
+{
+  "cases": [
+    {
+      "name": "multipart document uses opaque file reference",
+      "hook": "decodeRequest",
+      "args": [
+        {
+          "body": {
+            "kind": "multipart",
+            "fields": {
+              "model": [
+                "mineru-pipeline-cpu"
+              ]
+            },
+            "files": [
+              {
+                "ref": "request_file:file",
+                "filename": "paper.pdf",
+                "mimeType": "application/pdf",
+                "size": 42
+              }
+            ]
+          }
+        }
+      ],
+      "expected": {
+        "kind": "submit",
+        "model": "mineru-pipeline-cpu",
+        "requestBody": {
+          "model": "mineru-pipeline-cpu",
+          "multipart": true,
+          "file": {
+            "ref": "request_file:file",
+            "filename": "paper.pdf",
+            "mimeType": "application/pdf",
+            "size": 42
+          },
+          "filename": "paper.pdf",
+          "mime_type": "application/pdf"
+        }
+      }
+    },
+    {
+      "name": "generic task driver forwards opaque file reference as JSON bytes",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "http://127.0.0.1:18082",
+          "apiKey": "internal",
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "file": {
+              "__fileRef": "request_file:file",
+              "encoding": "base64",
+              "maxBytes": 52428800
+            },
+            "filename": "paper.pdf",
+            "mime_type": "application/pdf",
+            "multipart": true
+          },
+          "files": [
+            {
+              "ref": "request_file:file",
+              "filename": "paper.pdf",
+              "mimeType": "application/pdf",
+              "size": 42
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18082/v1/tasks",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer internal",
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "mineru-pipeline-cpu",
+          "file": {
+            "__fileRef": "request_file:file",
+            "encoding": "base64",
+            "maxBytes": 52428800
+          },
+          "filename": "paper.pdf",
+          "mime_type": "application/pdf",
+          "multipart": true
+        }
+      }
+    },
+    {
+      "name": "generic decode creates file placeholder",
+      "hook": "decodeRequest",
+      "args": [
+        {
+          "requestBody": {
+            "model": "mineru-pipeline-cpu"
+          },
+          "files": [
+            {
+              "ref": "request_file:file",
+              "filename": "paper.pdf",
+              "mimeType": "application/pdf",
+              "size": 42
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "kind": "submit",
+        "model": "mineru-pipeline-cpu",
+        "requestBody": {
+          "model": "mineru-pipeline-cpu",
+          "file": {
+            "__fileRef": "request_file:file",
+            "encoding": "base64",
+            "maxBytes": 52428800
+          },
+          "filename": "paper.pdf",
+          "mime_type": "application/pdf"
+        }
+      }
+    },
+    {
+      "name": "submit descriptor never forwards arbitrary document URL",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "http://127.0.0.1:18082",
+          "apiKey": "internal",
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "file_base64": "JVBERg==",
+            "filename": "paper.pdf",
+            "mime_type": "application/pdf"
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18082/v1/tasks",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer internal",
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "mineru-pipeline-cpu",
+          "file_base64": "JVBERg==",
+          "filename": "paper.pdf",
+          "mime_type": "application/pdf"
+        }
+      }
+    },
+    {
+      "name": "completed task is SUCCESS",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "state": {}
+        },
+        {
+          "status": "success",
+          "progress": 100,
+          "pages": 2,
+          "artifacts": [
+            {
+              "key": "markdown",
+              "type": "document",
+              "mimeType": "text/markdown"
+            }
+          ]
+        }
+      ],
+      "expected": {
+        "status": "SUCCESS",
+        "progress": "100%",
+        "failReason": "",
+        "data": {
+          "status": "success",
+          "progress": 100,
+          "pages": 2,
+          "artifacts": [
+            {
+              "key": "markdown",
+              "type": "document",
+              "mimeType": "text/markdown"
+            }
+          ]
+        },
+        "state": {
+          "artifacts": [
+            {
+              "key": "markdown",
+              "type": "document",
+              "mimeType": "text/markdown"
+            }
+          ],
+          "pages": 2
+        }
+      }
+    },
+    {
+      "name": "unknown status does not falsely advance",
+      "hook": "parseTaskResult",
+      "args": [
+        {
+          "state": {
+            "pages": 0
+          }
+        },
+        {
+          "status": "unexpected"
+        }
+      ],
+      "expected": {
+        "status": "UNKNOWN",
+        "state": {
+          "pages": 0
+        }
+      }
+    },
+    {
+      "name": "submission reserves PDF pages",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "usagePurpose": "facts",
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "filename": "paper.pdf",
+            "pages": 12
+          }
+        }
+      ],
+      "expected": {
+        "pages": 12
+      }
+    },
+    {
+      "name": "completion reads host result data pages",
+      "hook": "extractUsageOnComplete",
+      "args": [
+        {},
+        {
+          "data": {
+            "pages": 3
+          }
+        },
+        {}
+      ],
+      "expected": {
+        "pages": 3
+      }
+    },
+    {
+      "name": "missing document rejected",
+      "hook": "decodeRequest",
+      "args": [
+        {
+          "body": {
+            "kind": "json",
+            "value": {
+              "model": "mineru-pipeline-cpu"
+            }
+          }
+        }
+      ],
+      "expectedError": "file_base64"
+    },
+    {
+      "name": "host task view lists files",
+      "hook": "listArtifacts",
+      "args": [
+        {
+          "taskId": "task_public",
+          "status": "SUCCESS",
+          "data": {
+            "id": "d57d22c7cb1f43be8410475be304acf3",
+            "artifacts": [
+              {
+                "key": "json",
+                "type": "document",
+                "mimeType": "application/json",
+                "size": 1441
+              },
+              {
+                "key": "markdown",
+                "type": "document",
+                "mimeType": "text/markdown; charset=utf-8",
+                "size": 150
+              },
+              {
+                "key": "package",
+                "type": "document",
+                "mimeType": "application/zip",
+                "size": 985
+              }
+            ]
+          }
+        }
+      ],
+      "expected": [
+        {
+          "key": "json",
+          "type": "file",
+          "mimeType": "application/json"
+        },
+        {
+          "key": "markdown",
+          "type": "file",
+          "mimeType": "text/markdown; charset=utf-8"
+        },
+        {
+          "key": "package",
+          "type": "file",
+          "mimeType": "application/zip"
+        }
+      ]
+    },
+    {
+      "name": "download uses persisted upstream id",
+      "hook": "buildContentRequest",
+      "args": [
+        {
+          "baseUrl": "http://127.0.0.1:18082",
+          "apiKey": "internal",
+          "upstreamTaskId": "d57d22c7cb1f43be8410475be304acf3",
+          "taskId": "task_public",
+          "artifactKey": "markdown",
+          "clientRequest": {
+            "method": "GET"
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18082/v1/tasks/d57d22c7cb1f43be8410475be304acf3/artifacts/markdown/content",
+        "method": "GET",
+        "headers": {
+          "Authorization": "Bearer internal",
+          "Accept": "application/json"
+        }
+      }
+    }
+  ]
+}

@@ -67,6 +67,61 @@
           "baseUrl": "http://127.0.0.1:7863"
         }
       ]
+    },
+    {
+      "key": "local-ocr",
+      "name": "Local Document OCR",
+      "icon": "text:OCR",
+      "description": {
+        "en": "Private asynchronous PDF and image parsing through a self-hosted OCR task service.",
+        "zh": "通过自托管 OCR 任务服务异步解析 PDF 和图片，输出 Markdown、JSON 和 ZIP。"
+      },
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/local-ocr/v1/parse",
+          "type": "submit",
+          "decode": "parseDocument",
+          "render": "taskCreated"
+        },
+        {
+          "method": "GET",
+          "path": "/local-ocr/v1/tasks/:task_id",
+          "type": "query",
+          "render": "taskStatus",
+          "taskIdParam": "task_id"
+        }
+      ],
+      "usageSchema": {
+        "pages": {
+          "type": "number",
+          "unit": "count",
+          "description": {
+            "en": "Parsed pages unit price",
+            "zh": "解析页数单价"
+          }
+        }
+      },
+      "usageExamples": null,
+      "usageProfiles": null,
+      "models": [
+        "mineru-pipeline-cpu",
+        "paddleocr-vl-1.6-cpu"
+      ],
+      "task": true,
+      "provider": false,
+      "transform": false,
+      "latest": "0.1.6",
+      "versions": [
+        {
+          "version": "0.1.6",
+          "path": "local-ocr-task-plugin/plugin.js",
+          "sha256": "c10ce313198ff5e4e33b9f6638fbfd44d1901ce745997fdd82261906e24ad60a",
+          "minApiVersion": 1,
+          "kind": "task",
+          "baseUrl": "http://local-ocr.local:18082"
+        }
+      ]
     }
   ]
 }
