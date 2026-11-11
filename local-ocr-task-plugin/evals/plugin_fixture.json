@@ -222,7 +222,7 @@
       }
     },
     {
-      "name": "submission reserves PDF pages",
+      "name": "caller pages cannot reduce PDF reservation",
       "hook": "extractUsage",
       "args": [
         {
@@ -230,12 +230,45 @@
           "requestBody": {
             "model": "mineru-pipeline-cpu",
             "filename": "paper.pdf",
-            "pages": 12
+            "pages": 1
           }
         }
       ],
       "expected": {
-        "pages": 12
+        "pages": 100
+      }
+    },
+    {
+      "name": "PDF without caller pages reserves maximum",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "usagePurpose": "facts",
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "filename": "paper.pdf"
+          }
+        }
+      ],
+      "expected": {
+        "pages": 100
+      }
+    },
+    {
+      "name": "image-looking filename cannot reduce reservation",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "usagePurpose": "facts",
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "filename": "scan.png",
+            "pages": 100
+          }
+        }
+      ],
+      "expected": {
+        "pages": 100
       }
     },
     {

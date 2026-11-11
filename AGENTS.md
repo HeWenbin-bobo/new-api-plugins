@@ -18,10 +18,10 @@ This public repository distributes eight independent tools:
 - Keep the eight top-level product directories in place. Do not move plugin sources to the repository root, create parallel source/archive locations, or reorganize for cosmetic cleanup.
 - Each product owns its source, tests, public documentation, and exact allowlisted client ZIP. Keep projects independent; avoid root build tooling unless a real shared need arises.
 - Keep repository-wide designs and plans in `docs/superpowers/specs/` and `docs/superpowers/plans/`. Project-local historical documents may remain in place.
-- `docs/PROJECT_STATUS.md` is the cross-project handoff and verification snapshot. Update it after meaningful milestones or releases; keep durable rules here, not in status history.
+- `docs/PROJECT_STATUS.md` is the cross-project handoff and verification snapshot. Update it after meaningful milestones or releases; keep durable rules here, not in status history. Use durable product-baseline references rather than a "current HEAD" claim that the status commit itself immediately invalidates.
 - Root responsibilities: `README.md` is the user/install guide, `index.json` is the Task Plugin marketplace index, `.githooks/` contains publication guards, and `.gitattributes` preserves release-source normalization.
 - `CLAUDE.md` must contain only `@AGENTS.md`; keep all repository instructions here.
-- `.omc/` is ignored session state, not an authoritative project document. Keep real configuration and generated verification material outside Git.
+- `.omc/` and `.remember/` are ignored local state, not authoritative project documents. Keep real configuration and generated verification material outside Git.
 
 ## New API plugin contracts
 
@@ -47,11 +47,13 @@ This public repository distributes eight independent tools:
 - The user's 2026-11-06 MiniMax H3 and Kling V3 reports are version-scoped evidence; they do not verify later final parser changes.
 - For Local OCR, preserve the selected model, page usage, native routes, and host task identity. Native multipart requests use host file references; the generic task driver forwards the opaque `__fileRef` placeholder as Base64 JSON rather than accepting arbitrary document URLs. Artifact downloads prefer the persisted upstream task ID and construct only the expected gateway content path.
 - `local-ocr-task-plugin/` supplies no OCR inference stack, model weights, Docker images, or document storage. Keep its supplied live New API reports distinct from fresh local fixture and Skill tests.
+- Never base quota reservation or authorization on caller-supplied usage, filename/MIME metadata, or an insufficient default. Use trusted server-side counts or a conservative maximum reservation before submission; completion-time reconciliation cannot retroactively strengthen that authorization. A quota fix requires a new release, not rewritten published source.
 
 ## Secrets, local inputs, and archives
 
 - Never commit `config.json`, `config.local.json`, `.env*`, API keys, access tokens, or other credentials. Only example configuration with empty credentials is distributable.
 - Do not print secrets while auditing. Inspect staged content as well as the working tree, suppress credential values in output, distinguish obvious test fixtures, and never claim absolute absence of unknown historical secrets.
+- Use angle-bracket placeholders for credentials in documentation. Even fictitious credential-shaped examples can trigger publication guards; do not quote a blocked token-shaped string in status or review records.
 - Before publication, confirm local configs are ignored and untracked, then compare their exact non-empty credential values against every tracked Git blob, all history, and the remote tree after pushing.
 - Keep `node_modules/`, Python caches, logs, `.idea/`, `.remember/`, and other local state out of Git. After changing ignore rules, verify representative and nested paths with `git check-ignore -v` and `git ls-files`; `*` and `**` differ in recursion. Removing an index entry does not delete the local file.
 - Sanitize upstream exceptions and response bodies before logging; they can contain credentials, authorization headers, request payloads, or large media inputs. Reuse the owning project's redaction path and cover new error paths offline.
@@ -107,6 +109,7 @@ After every upgrade to a distributable project, regenerate its client ZIP withou
 ### Authorization and commits
 
 - Commit, tag, push, or rewrite history only when the user explicitly requests it. Force-pushing, rebasing published work, and hard resets require specific authorization.
+- Before amending, verify the commit has not been pushed. Correct an already-published commit with a new commit, preserving remote history; do not amend it and force-push.
 - Use Conventional Commit subjects (`feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`) describing the user-visible change.
 - For nontrivial commits, include the reason, behavior changes, verification, and relevant limitations in a concise body. Keep commits focused and separate source changes from regenerated artifacts.
 - Before committing, inspect `git status`, the complete staged file list, `git diff --cached --check`, and the staged sensitive-data audit. Ignore rules alone are insufficient; ignored files can be force-added.
@@ -129,6 +132,7 @@ After every upgrade to a distributable project, regenerate its client ZIP withou
 - After pushing, fetch and compare `origin/main` with `HEAD`, then compare the GitHub tree with the local commit.
 - In GitHub verification, distinguish commit IDs from root tree IDs. Compare recursive API `blob` entries with `git ls-tree -r -l`, excluding directory `tree` entries.
 - Fetch release-sensitive Raw URLs by an explicitly verified immutable commit SHA and compare their bytes with `git show <verified-sha>:<path>`. A mutable-branch HTTP 200 alone does not prove content parity; do not assume `HEAD` still names the published commit.
+- If anonymous GitHub API requests are rate-limited, record that audit path as incomplete. A codeload ZIP pinned to the verified commit may verify its snapshot's paths, CRC, and bytes against Git, but is not evidence that the API audit passed.
 - GitHub push protection, when enabled, is an additional service-side layer, not a replacement for these checks.
 
 ## Changes and testing
@@ -156,7 +160,7 @@ Run each command from its owning project directory:
 | `video_wb2api_panel_newapi/` | `npm test` |
 | `jihuarst-image/` | `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v` |
 | `jihuarst-video/` | `PYTHONIOENCODING=utf-8 python -m unittest discover -s tests -v` |
-| `local-ocr-task-plugin/` | `npm test` (all 11 fixture cases; no New API runtime) |
+| `local-ocr-task-plugin/` | `npm test` (all 13 fixture cases; no New API runtime) |
 | `local-document-ocr/` | `PYTHONIOENCODING=utf-8 python -m unittest discover -s evals -p 'test_*.py' -v` |
 | `unified-web-mcp/` | `npm test` (Node.js 24+; use `npm ci` in a clean checkout) |
 

@@ -111,12 +111,12 @@
       "task": true,
       "provider": false,
       "transform": false,
-      "latest": "0.1.6",
+      "latest": "0.1.7",
       "versions": [
         {
-          "version": "0.1.6",
+          "version": "0.1.7",
           "path": "local-ocr-task-plugin/plugin.js",
-          "sha256": "c10ce313198ff5e4e33b9f6638fbfd44d1901ce745997fdd82261906e24ad60a",
+          "sha256": "ec9a1b23bee8c05afe783698c44ff8fc4321c658f5dde82f719b9686ebc31bfb",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://local-ocr.local:18082"

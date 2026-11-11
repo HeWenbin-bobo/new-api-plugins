@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.7
+
+- Reserve the 100-page maximum before every task-expression submission, without trusting caller-supplied page counts, filenames or MIME metadata; completion still uses the task service's actual pages.
+
 ## 0.1.0
 
 - Initial private asynchronous OCR task service for MinerU 4.1.7 Basic and PaddleOCR-VL-1.6 GGUF.

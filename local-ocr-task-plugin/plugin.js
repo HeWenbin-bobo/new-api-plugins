@@ -4,7 +4,7 @@ export const meta = {
   apiVersion: 1,
   key: "local-ocr",
   name: "Local Document OCR",
-  version: "0.1.6",
+  version: "0.1.7",
   author: { name: "Local OCR Stack contributors" },
   description: {
     en: "Private asynchronous PDF and image parsing through a self-hosted OCR task service.",
@@ -113,17 +113,11 @@ export function parseTaskResult(ctx, body) {
 }
 
 export function extractUsage(ctx) {
-  // Images are one page. PDFs are counted by the task service during strict
-  // signature validation and persisted in the submit response. No document
-  // bytes are decoded by this plugin.
+  // Legacy per-call ratio pricing is separate from expression usage facts.
   if (ctx.usagePurpose === "billing_ratios") return { pages: 1 };
-  const body = ctx.requestBody || {};
-  if (body.pages !== undefined) {
-    const pages = Number(body.pages);
-    if (!Number.isInteger(pages) || pages < 1 || pages > 100) throw new Error("pages must be an integer from 1 to 100");
-    return { pages: pages };
-  }
-  return { pages: 1 };
+  // Filename and MIME metadata are caller-controlled. Document bytes are not
+  // available here, so no submission can safely claim a smaller maximum.
+  return { pages: 100 };
 }
 
 export function extractUsageOnComplete(ctx, result, body) {
