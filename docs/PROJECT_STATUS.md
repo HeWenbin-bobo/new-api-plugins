@@ -10,6 +10,12 @@
 - 七文件 ZIP 已重建为 9,976 字节，SHA-256 `c8c10bc83d9a9aea3cf430683a0f50952d4c9f97b9dc98ba9ea35f1360697245`；白名单、CRC、安全路径、无嵌套归档、逐字节源一致性及干净解压测试通过。发布保护回归 40/40。实际 pre-push 对普通外发提交的 85 个唯一 blob 检查通过，无 `--no-verify` 或规则弱化。四个本地非空凭据值随后对全部可达历史的 237 个唯一 blob 完成精确扫描，0 匹配，未显示凭据；该启发式检查不证明未知秘密绝对不存在。
 - 本轮未调用真实 New API/moejs、OCR 或付费服务；实际预留、扣费、退款、宿主 multipart/文件持久化、市场安装、OCR 文档处理和识别质量仍未验证。插件无声明依赖，审查中的 `npm audit` 因无 lockfile 返回 `ENOLOCK`，不作为依赖审计通过证据。产品基线提交 `ca8d3c7 fix: reserve maximum pages for Local OCR submissions` 已快进合并并推送到 `main`；其 `origin/main`、GitHub 递归树 86 个 blob 及固定提交 Raw 索引、插件源码和 ZIP 均核验一致。本发布状态由后续文档提交记录，避免状态提交使自身产品基线失效。
 
+## 仓库整理与维护规则沉淀（2026-11-11，Local OCR 0.1.7 发布后）
+
+- 接手时 `main` 与 `origin/main` 均为 `76471c5 docs: record Local OCR 0.1.7 publication`，工作树干净，`git ls-files --others --exclude-standard` 无游离的非忽略文件。`git ls-files` 盘点为 86 个跟踪文件、8 份白名单发布 ZIP、5 份仓库级设计与 5 份计划，八个产品目录保持原位。`git check-ignore -v` 的代表性检查覆盖 `.omc/`、`.remember/`、`.idea/`、`.superpowers/`、各产品真实配置类型、Python 缓存、两个未白名单实测输入 ZIP 及根目录参考 DOCX，均匹配忽略规则；其余本地路径未逐一检查，由忽略清单及零非忽略游离文件结果界定。本轮未移动、删除或纳入这些本地材料，也未读取或公开凭据内容。
+- 本轮只修改 `AGENTS.md` 与本状态文档：新增 `git ls-files` 盘点入口、零文件/零 blob 审计无效、ZIP 条目路径不要重复拼接产品目录、下载与字节比对必须 fail-fast 四条规则。未修改任何产品源码、测试、版本、市场索引或八份发布 ZIP，也未因纯文档改动重打归档。`CLAUDE.md` 仍仅含 `@AGENTS.md`。
+- 验证边界：上述为本轮实际执行的目录与忽略规则检查；未重新运行产品测试套件，因为产品代码与测试无差异。Local OCR 0.1.7 的离线验证结论仍以 `ca8d3c7` 基线记录为准。此前对最终状态提交 `76471c5` 的固定提交 Raw URL 重试遇到连接重置/超时，该提交的 Raw 字节一致性未完成核验；产品提交 `ca8d3c7` 的 Raw 与 GitHub 递归树核验已通过。下一次推送前后应按 `AGENTS.md` 的 fail-fast 规则重新验证，不将失败重试记为通过。
+
 ## 仓库整理与维护规则沉淀（2026-11-10）
 
 - 盘点时 `main` 与 `origin/main` 均为 `0e82a84`，产品文件无未提交改动，Git 中无游离的非忽略文件。86 个跟踪文件保留八个产品目录的原位分类：每个产品内分别放置源码、测试、公开文档和精确发布 ZIP；仓库级设计与计划保留在 `docs/superpowers/`，状态留在本文件，长期规则集中在根 `AGENTS.md`。没有为美观移动或删除文件。
@@ -37,7 +43,7 @@
 
 ## 当前基线
 
-- Local OCR 的最近产品基线为 `aae43c1 chore: add Local OCR client archives`，功能提交为 `7e01a51`；后续 `docs: record Local OCR publication` 提交只更新状态、安装警告及插件归档。开始新工作前以实际 Git/远端为准，不以本文件的提交号代替检查。
+- Local OCR 的最近产品基线为 `ca8d3c7 fix: reserve maximum pages for Local OCR submissions`，已快进合并并推送到 `main`；`76471c5 docs: record Local OCR 0.1.7 publication` 记录其发布状态。本地分支 `fix/local-ocr-page-reservation` 仍指向 `ca8d3c7`，未删除。开始新工作前以实际 Git/远端为准，不以本文件的提交号代替检查。
 - `70be661 docs: record Image 2.6 publication` 推送后，GitHub 递归树的 70 个 blob 路径、SHA、大小与本地一致且未截断，脚本、测试、`SKILL.md`、ZIP、状态文档、guard 及设计/计划等 10 个发布敏感文件的固定合并提交 Raw URL 与 Git 字节一致。两个功能分支提交正常推送时 pre-push 均扫描 73 个唯一 blob 并通过，未绕过检查；对 4 个本地非空凭据值检查 208 个历史 blob、70 个远端树条目及发布 ZIP 内容均为 0 匹配。该精确值审计不证明未知历史秘密绝对不存在。
 - 上一已发布基线：`35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。其后 `f656bc9 docs: reorganize maintenance guide and release status` 是本轮分支起点。当时 `35e8930` 的 GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地一致，相关固定提交 Raw URL 均返回 HTTP 200 且字节一致。
 - 本轮发布包括仓库文档整理、Jihuarst Image/Video 离线内存 HTTP fixture、对应官方 ZIP，以及 2026-11-07 的真实付费验证记录。生产 `scripts/generate.py`、New API 插件源码、市场索引及版本均未修改；本地凭据、任务 ID、日志和付费媒体仍只保留在忽略目录。
