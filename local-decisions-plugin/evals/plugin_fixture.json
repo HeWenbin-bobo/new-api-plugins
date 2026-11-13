@@ -1,0 +1,523 @@
+{
+  "cases": [
+    {
+      "name": "choice and noul request builds a systemone submit",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "action": {
+                "type": "choice",
+                "instructions": "Select the next action.",
+                "criteria": {
+                  "read": "Read without modifying.",
+                  "write": "Modify the file."
+                }
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18083/v1/systemone",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "Piccolo-4B-Q4_K_M",
+          "state": "A read-only request.",
+          "questions": {
+            "action": {
+              "type": "choice",
+              "instructions": "Select the next action.",
+              "criteria": {
+                "read": "Read without modifying.",
+                "write": "Modify the file."
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "configured base URL with /v1 suffix is normalized",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-9B-Q8_0",
+          "baseUrl": "http://127.0.0.1:18083/v1/",
+          "requestBody": {
+            "model": "Piccolo-9B-Q8_0",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18083/v1/systemone",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "Piccolo-9B-Q8_0",
+          "state": "A read-only request.",
+          "questions": {
+            "risk": {
+              "type": "noul",
+              "instructions": "Could this delete data?"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "Jev-Omni routes to its own configured runtime",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Jev-Omni-12B-Q4_K_M",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "Jev-Omni-12B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18503/v1/systemone",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "Jev-Omni-12B-Q4_K_M",
+          "state": "A read-only request.",
+          "questions": {
+            "risk": {
+              "type": "noul",
+              "instructions": "Could this delete data?"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "selected upstream model is preserved",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "upstreamModel": "Piccolo-9B-Q8_0",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18083/v1/systemone",
+        "method": "POST",
+        "headers": {
+          "Content-Type": "application/json",
+          "Accept": "application/json"
+        },
+        "body": {
+          "model": "Piccolo-9B-Q8_0",
+          "state": "A read-only request.",
+          "questions": {
+            "risk": {
+              "type": "noul",
+              "instructions": "Could this delete data?"
+            }
+          }
+        }
+      }
+    },
+    {
+      "name": "normalized choice answer returns an immediate success",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_decision_1",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "action": {
+                "type": "choice",
+                "instructions": "Select the next action.",
+                "criteria": {
+                  "read": "Read without modifying.",
+                  "write": "Modify the file."
+                }
+              }
+            }
+          }
+        },
+        {
+          "statusCode": 200,
+          "body": {
+            "model": "piccolo-test",
+            "answers": {
+              "action": {
+                "type": "choice",
+                "choice": "read",
+                "probabilities": {
+                  "read": 0.9997,
+                  "write": 0.0003
+                },
+                "confidence": 0.9995
+              }
+            },
+            "usage": {
+              "input_tokens": 412,
+              "output_tokens": 0
+            }
+          }
+        }
+      ],
+      "expected": {
+        "taskId": "task_decision_1",
+        "taskData": {
+          "model": "piccolo-test",
+          "answers": {
+            "action": {
+              "type": "choice",
+              "choice": "read",
+              "probabilities": {
+                "read": 0.9997,
+                "write": 0.0003
+              },
+              "confidence": 0.9995
+            }
+          },
+          "usage": {
+            "input_tokens": 412,
+            "output_tokens": 0
+          }
+        },
+        "immediate": {
+          "status": "SUCCESS",
+          "progress": "100%"
+        }
+      }
+    },
+    {
+      "name": "unnormalized probabilities are rejected",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_decision_1",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "action": {
+                "type": "choice",
+                "instructions": "Select the next action.",
+                "criteria": {
+                  "read": "Read without modifying.",
+                  "write": "Modify the file."
+                }
+              }
+            }
+          }
+        },
+        {
+          "statusCode": 200,
+          "body": {
+            "model": "piccolo-test",
+            "answers": {
+              "action": {
+                "type": "choice",
+                "choice": "read",
+                "probabilities": {
+                  "read": 0.5,
+                  "write": 0.4
+                }
+              }
+            },
+            "usage": {
+              "input_tokens": 412,
+              "output_tokens": 0
+            }
+          }
+        }
+      ],
+      "expectedError": "not normalized"
+    },
+    {
+      "name": "generated answer tokens are rejected",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_decision_1",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        },
+        {
+          "statusCode": 200,
+          "body": {
+            "model": "piccolo-test",
+            "answers": {
+              "risk": {
+                "type": "noul",
+                "noul": 0.1
+              }
+            },
+            "usage": {
+              "input_tokens": 412,
+              "output_tokens": 7
+            }
+          }
+        }
+      ],
+      "expectedError": "must not generate"
+    },
+    {
+      "name": "upstream HTTP failure is an error",
+      "hook": "parseSubmitResponse",
+      "args": [
+        {
+          "publicTaskId": "task_decision_1",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        },
+        {
+          "statusCode": 502,
+          "body": {
+            "error": {
+              "message": "runtime unavailable"
+            }
+          }
+        }
+      ],
+      "expectedError": "HTTP 502"
+    },
+    {
+      "name": "initial reservation uses the 8192-token maximum",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "usagePurpose": "facts",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expected": {
+        "input_tokens": 8192,
+        "output_tokens": 0
+      }
+    },
+    {
+      "name": "legacy ratio pricing is not an expression fact",
+      "hook": "extractUsage",
+      "args": [
+        {
+          "usagePurpose": "billing_ratios",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expected": null
+    },
+    {
+      "name": "completion reconciles to reported input tokens",
+      "hook": "extractUsageOnComplete",
+      "args": [
+        {},
+        {
+          "data": {
+            "usage": {
+              "input_tokens": 412,
+              "output_tokens": 0
+            }
+          }
+        },
+        {
+          "usage": {
+            "input_tokens": 412,
+            "output_tokens": 0
+          }
+        }
+      ],
+      "expected": {
+        "input_tokens": 412,
+        "output_tokens": 0
+      }
+    },
+    {
+      "name": "completion rejects nonzero output tokens",
+      "hook": "extractUsageOnComplete",
+      "args": [
+        {},
+        {},
+        {
+          "usage": {
+            "input_tokens": 412,
+            "output_tokens": 1
+          }
+        }
+      ],
+      "expectedError": "zero"
+    },
+    {
+      "name": "unsupported model is rejected before any request",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "piccolo-router",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expectedError": "model must be"
+    },
+    {
+      "name": "choice question needs at least two criteria",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "action": {
+                "type": "choice",
+                "instructions": "Select the next action.",
+                "criteria": {
+                  "read": "Read without modifying."
+                }
+              }
+            }
+          }
+        }
+      ],
+      "expectedError": "2 to 256"
+    },
+    {
+      "name": "undocumented question type is rejected",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "baseUrl": "http://127.0.0.1:18083",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "action": {
+                "type": "score",
+                "instructions": "Rate this."
+              }
+            }
+          }
+        }
+      ],
+      "expectedError": "choice and noul"
+    },
+    {
+      "name": "administrator fallback base URL rejects embedded credentials",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "model": "Piccolo-4B-Q4_K_M",
+          "upstreamModel": "unmapped-decision-model",
+          "baseUrl": "http://user:secret@127.0.0.1:18083",
+          "requestBody": {
+            "model": "Piccolo-4B-Q4_K_M",
+            "state": "A read-only request.",
+            "questions": {
+              "risk": {
+                "type": "noul",
+                "instructions": "Could this delete data?"
+              }
+            }
+          }
+        }
+      ],
+      "expectedError": "Invalid administrator upstream base URL"
+    },
+    {
+      "name": "synchronous route has no task retrieval",
+      "hook": "buildQueryRequest",
+      "args": [
+        {
+          "taskId": "task_decision_1"
+        }
+      ],
+      "expectedError": "synchronous"
+    }
+  ]
+}

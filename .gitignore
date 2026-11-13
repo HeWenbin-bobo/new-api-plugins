@@ -13,7 +13,7 @@
 *.tar
 *.tgz
 unified-web-mcp/unified-web-mcp-package/*
-# Only these eight reviewed client distributions are tracked.
+# Only these ten reviewed client distributions are tracked.
 !video_wb2api_hub_newapi/video_wb2api_hub_newapi.zip
 !video_wb2api_panel_newapi/video_wb2api_panel_newapi.zip
 !jihuarst-image/jihuarst-image.zip
@@ -22,6 +22,8 @@ unified-web-mcp/unified-web-mcp-package/*
 !unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip
 !local-ocr-task-plugin/local-ocr-task-plugin.zip
 !local-document-ocr/local-document-ocr.zip
+!local-decisions-plugin/local-decisions-plugin.zip
+!local-decisions/local-decisions.zip
 **/__pycache__/
 **/test-results/
 *.py[cod]

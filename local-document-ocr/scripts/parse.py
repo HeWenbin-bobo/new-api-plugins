@@ -25,7 +25,15 @@ import zipfile
 from pathlib import Path
 from typing import Any, Mapping
 
-MODELS = ("mineru-pipeline-cpu", "paddleocr-vl-1.6-cpu")
+MODELS = (
+    "mineru-pipeline-cpu",
+    "paddleocr-vl-1.6-cpu",
+    "hunyuanocr-1.5-cpu",
+    "glm-ocr-cpu",
+    "xiaomi-ocr-0-cpu",
+    "minicpm-ocr-1.0-cpu",
+    "ovisocr3-cpu",
+)
 SUFFIXES = {".pdf", ".png", ".jpg", ".jpeg", ".webp"}
 PENDING = {"NOT_START", "SUBMITTED", "QUEUED", "IN_PROGRESS", "PENDING", "PROCESSING", "RUNNING"}
 TERMINAL_FAILURES = {"FAILURE", "FAILED", "CANCELED", "CANCELLED", "REJECTED", "ERROR"}
@@ -189,14 +197,16 @@ class NewAPIOCRClient:
             raise OCRError(redact(message, (self.api_key,)))
         return value
 
-    def submit(self, document: Path, model: str) -> str:
+    def submit(self, document: Path, model: str, quality: bool = False) -> str:
         if model not in MODELS:
             raise OCRError(f"model must be one of: {', '.join(MODELS)}")
+        # Every OCR model gets page-level Jev scoring. MinerU additionally
+        # emits block-level scores when its middle_json is available.
         document = validate_document(document)
         boundary = f"----local-document-ocr-{uuid.uuid4().hex}"
         mime_type = mimetypes.guess_type(document.name)[0] or "application/octet-stream"
         chunks: list[bytes] = []
-        for name, value in (("model", model),):
+        for name, value in (("model", model), ("quality", "true" if quality else "false")):
             chunks.extend([
                 f"--{boundary}\r\nContent-Disposition: form-data; name=\"{name}\"\r\n\r\n".encode(),
                 value.encode("utf-8"), b"\r\n",
@@ -355,6 +365,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--config", help="Configuration JSON path; default: skill-root/config.json")
     parser.add_argument("--base-url", help="Override configured New API base URL")
     parser.add_argument("--model", choices=MODELS, help="OCR model; default from configuration")
+    parser.add_argument("--quality", action="store_true", help="Score pages with Jev for any model; MinerU also scores blocks; writes quality/quality_report artifacts")
     parser.add_argument("--artifact", default="markdown", help="Artifact key to download (default: markdown)")
     parser.add_argument("--timeout", type=float, help="Per-request timeout in seconds")
     parser.add_argument("--poll-interval", type=float, help="Polling interval in seconds")
@@ -378,7 +389,7 @@ def parse_document(args: argparse.Namespace) -> dict[str, Any]:
         raise OCRError(f"Output already exists: {output}; use --overwrite to replace it")
     client = NewAPIOCRClient(base_url, config["api_key"], args.timeout if args.timeout is not None else config.get("timeout", 30))
     started = time.monotonic()
-    task_id = client.submit(document, model)
+    task_id = client.submit(document, model, args.quality)
     # Once the ID exists, all subsequent failures are scoped to this task and
     # intentionally never trigger another submission.
     client.poll(task_id, args.poll_interval if args.poll_interval is not None else config.get("poll_interval", 3), args.max_wait if args.max_wait is not None else config.get("max_wait", 1800))
@@ -386,7 +397,7 @@ def parse_document(args: argparse.Namespace) -> dict[str, Any]:
     if args.artifact not in [item["key"] for item in available]:
         raise OCRError(f"Task {task_id} completed but artifact {args.artifact} is unavailable; available keys: {', '.join(item['key'] for item in available)}")
     path = client.download(task_id, args.artifact, output, args.overwrite)
-    return {"base_url": base_url, "model": model, "task_id": task_id, "artifact": args.artifact, "path": str(path), "bytes": path.stat().st_size, "elapsed_seconds": round(time.monotonic() - started, 3)}
+    return {"base_url": base_url, "model": model, "quality": bool(args.quality), "task_id": task_id, "artifact": args.artifact, "path": str(path), "bytes": path.stat().st_size, "elapsed_seconds": round(time.monotonic() - started, 3)}
 
 
 def main(argv: list[str] | None = None) -> int:

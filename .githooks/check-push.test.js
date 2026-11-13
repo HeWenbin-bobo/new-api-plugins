@@ -18,6 +18,8 @@ const releaseZips = [
   'unified-web-mcp/unified-web-mcp-package/unified-web-mcp-0.1.0.zip',
   'local-ocr-task-plugin/local-ocr-task-plugin.zip',
   'local-document-ocr/local-document-ocr.zip',
+  'local-decisions-plugin/local-decisions-plugin.zip',
+  'local-decisions/local-decisions.zip',
 ];
 
 const crcTable = Array.from({ length: 256 }, (_, index) => {

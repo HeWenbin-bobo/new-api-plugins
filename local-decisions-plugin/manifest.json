@@ -1,0 +1,14 @@
+{
+  "kind": "new-api-task-plugin",
+  "key": "local-decisions",
+  "name": "Local Decisions (Piccolo + Jev-Omni)",
+  "version": "0.4.0",
+  "entry": "plugin.js",
+  "source_hash": "30b7c560f4bf86b2c1132d99044e372cf87fb9d80c1ff640010ae999b58bee1a",
+  "models": [
+    "Piccolo-4B-Q4_K_M",
+    "Piccolo-9B-Q8_0",
+    "Jev-Omni-12B-Q4_K_M"
+  ],
+  "packaged_at": "2026-11-13"
+}
