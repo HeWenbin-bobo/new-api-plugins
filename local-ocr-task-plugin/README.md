@@ -3,14 +3,14 @@
 A third-party **New API Task Plugin API v1** driver for asynchronous PDF and image OCR through a self-hosted OCR task service.
 
 - Plugin key: `local-ocr`
-- Version: `0.1.7`
-- Models: `mineru-pipeline-cpu`, `paddleocr-vl-1.6-cpu`
-- Recommended submit: `POST /local-ocr/v1/parse` with multipart `model` and `file`
+- Version: `0.1.9`
+- Models: `mineru-pipeline-cpu`, `paddleocr-vl-1.6-cpu`, `hunyuanocr-1.5-cpu`, `glm-ocr-cpu`, `xiaomi-ocr-0-cpu`, `minicpm-ocr-1.0-cpu`, `ovisocr3-cpu`
+- Recommended submit: `POST /local-ocr/v1/parse` with multipart `model`, `file` and the optional `quality` flag
 - Query: `GET /v1/tasks/{publicTaskId}`
 - Artifacts: `GET /v1/tasks/{publicTaskId}/artifacts` and `/artifacts/{key}/content`
 - Page usage is reported through the `pages` usage field; the plugin does not set a price.
 
-This package contains only the gateway integration and its deterministic offline fixture. It does **not** include MinerU/PaddleOCR models, a Docker inference stack, real configuration, credentials, user documents, result data, caches or logs.
+This package contains only the gateway integration and its deterministic offline fixture. It does **not** include MinerU, PaddleOCR-VL, HunyuanOCR, GLM-OCR, Xiaomi-OCR-0, MiniCPM-OCR or OvisOCR3 models, a Docker inference stack, real configuration, credentials, user documents, result data, caches or logs.
 
 ## Install in New API
 
@@ -19,14 +19,14 @@ This package contains only the gateway integration and its deterministic offline
 3. Add a **Task Plugin (type 61)** channel and bind `local-ocr`.
 4. Set the channel Base URL to your OCR task gateway. This gateway must expose the fixed upstream service behind internal authentication; the plugin does not itself provide an OCR model.
 5. Set the upstream key to the OCR gateway's internal key. Give callers only an ordinary New API user token, not the upstream internal key.
-6. Enable the two models, configure permitted user groups and set a price. For a private zero-cost test, use `tier("free", u("pages") * 0)` for both models. With nonzero per-page pricing, every task-expression submission requires enough quota for the 100-page maximum reservation; completion usage reconciles to the task service's actual pages.
+6. Enable the models you intend to serve, configure permitted user groups and set a price. For a private zero-cost test, use `tier("free", u("pages") * 0)` for each enabled model. With nonzero per-page pricing, every task-expression submission requires enough quota for the 100-page maximum reservation; completion usage reconciles to the task service's actual pages.
 7. If using the included default `local-ocr.local` address, pin that name to your OCR gateway in the host and New API container `/etc/hosts` and allow its hostname/port in Fetch settings. Change it to your own DNS name for another deployment; do not expose an unauthenticated OCR gateway publicly.
 
 The example default uses plaintext HTTP. Use it only on a trusted loopback/private network; on an untrusted network, configure HTTPS with normal certificate verification so caller tokens, the internal gateway key and document bytes are not exposed in transit. This is not a claim that a public TLS endpoint has been deployed or tested.
 
-**0.1.7 reservation behavior:** For task-expression `pages` usage, every submission reserves the 100-page maximum before upload. Caller-supplied `pages`, filenames and MIME metadata cannot reduce this initial authorization; the plugin does not inspect document bytes before reservation. The task service remains responsible for strict document validation and reporting the trusted actual page count used by completion reconciliation. The separate legacy per-call `billing_ratios` path remains unchanged. Static contract review of official New API source commit `0409deccfff2b0e8babc28ca552af44d526375bf` confirms this hook participates in initial reservation; actual New API reservation/debit and refund behavior has not been exercised in this environment.
+**0.1.9 reservation behavior:** For task-expression `pages` usage, every submission reserves the 100-page maximum before upload. Caller-supplied `pages`, filenames and MIME metadata cannot reduce this initial authorization; the plugin does not inspect document bytes before reservation. The task service remains responsible for strict document validation and reporting the trusted actual page count used by completion reconciliation. The separate legacy per-call `billing_ratios` path remains unchanged. Static contract review of official New API source commit `0409deccfff2b0e8babc28ca552af44d526375bf` confirms this hook participates in initial reservation; actual New API reservation/debit and refund behavior has not been exercised in this environment.
 
-**Historical 0.1.6 warning:** Its `extractUsage()` used a supplied `pages` value where present, or one page otherwise, before the gateway's trusted page count was available. A multi-page PDF could therefore be authorized against an insufficient initial reservation. Do not enable nonzero per-page pricing or rely on 0.1.6 as the sole quota control; upgrade to 0.1.7, keep zero-price testing, or enforce a separate trusted quota/reservation. This risk was identified by post-publication static review, not reproduced as a live debit bypass. Published 0.1.6 source and history remain unchanged.
+**Historical 0.1.6 warning:** Its `extractUsage()` used a supplied `pages` value where present, or one page otherwise, before the gateway's trusted page count was available. A multi-page PDF could therefore be authorized against an insufficient initial reservation. Do not enable nonzero per-page pricing or rely on 0.1.6 as the sole quota control; upgrade to 0.1.7 or later, keep zero-price testing, or enforce a separate trusted quota/reservation. This risk was identified by post-publication static review, not reproduced as a live debit bypass. Published 0.1.6 source and history remain unchanged.
 
 ## Call
 
@@ -34,16 +34,21 @@ The example default uses plaintext HTTP. Use it only on a trusted loopback/priva
 curl -X POST https://your-new-api.example/local-ocr/v1/parse \
   -H 'Authorization: Bearer <your-new-api-user-token>' \
   -F 'model=mineru-pipeline-cpu' \
-  -F 'file=@paper.pdf'
+  -F 'file=@paper.pdf' \
+  -F 'quality=true'          # optional
 ```
 
-Use `paddleocr-vl-1.6-cpu` for the other route. Poll the returned public task ID, list artifacts and download `markdown`, `json`, `package`, or engine-specific structured results. A completed task is not proof of OCR accuracy.
+Use any other model ID for its route. Poll the returned public task ID, list artifacts and download `markdown`, `json`, `package`, or engine-specific structured results. A completed task is not proof of OCR accuracy.
 
-On the tested CPU-only host, MinerU is preferred for long documents; PaddleOCR-VL is for small documents or comparison. This is a hardware-specific timing observation, not an accuracy ranking.
+`quality=true` is accepted for every model and asks the gateway to score rendered page text against the page image with MiniCPM-OCR Jev; MinerU additionally scores layout blocks. It adds `quality` (JSON) and `quality_report` (Markdown) artifacts. Page scoring is capped by gateway configuration (`JEV_PAGE_QUALITY_MAX_PAGES`, default 10) and is slow on CPU: the companion Skill documents roughly 2–3 minutes per dense page. A high score means broad page-level consistency, not per-line correctness.
+
+Task status responses carry a `content_url` per artifact. When the host maps a public artifact URL, that URL is used; otherwise the plugin returns the same-origin `/v1/tasks/{taskId}/artifacts/{key}/content` path as a fallback.
+
+On the tested CPU-only host, MinerU is preferred for long documents; PaddleOCR-VL is for small documents or comparison, and the remaining five models are quality/format comparison routes. These are hardware-specific timing observations, not an accuracy ranking.
 
 ## Marketplace index
 
-The repository's root `index.json` lists only the latest `local-ocr@0.1.7` source at:
+The repository's root `index.json` lists only the latest `local-ocr@0.1.9` source at:
 
 ```text
 local-ocr-task-plugin/plugin.js
@@ -65,7 +70,7 @@ The version path resolves relative to that index on the same origin. The source 
 npm test
 ```
 
-The current source passes all **13/13** fixture cases with no skipped or todo tests. This executes exported hooks in Node.js; it does not verify New API's moejs runtime, host multipart handling, persistence, billing or marketplace installation.
+The current source passes all **14/14** fixture cases with no skipped or todo tests. The fixture keeps the 0.1.7 quota regressions: caller-supplied `pages` and image-looking filenames cannot reduce the 100-page initial reservation. This executes exported hooks in Node.js; it does not verify New API's moejs runtime, host multipart handling, persistence, billing or marketplace installation.
 
 The supplied development report also states that real New API tests passed for both models, including submission, polling, artifact listing and downloads. That is supplied evidence for the tested version and deployment, not a fresh live verification performed during this repository integration. Do not upload real configuration or generated test results to GitHub.
 

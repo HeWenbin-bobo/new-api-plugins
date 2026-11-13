@@ -1,10 +1,10 @@
-// local-ocr: private PDF/image OCR tasks for MinerU and PaddleOCR-VL.
+// local-ocr: private PDF/image OCR tasks for seven self-hosted OCR engines.
 // Synchronous ECMAScript only. The host performs all HTTP and persistence.
 export const meta = {
   apiVersion: 1,
   key: "local-ocr",
   name: "Local Document OCR",
-  version: "0.1.7",
+  version: "0.1.9",
   author: { name: "Local OCR Stack contributors" },
   description: {
     en: "Private asynchronous PDF and image parsing through a self-hosted OCR task service.",
@@ -12,7 +12,7 @@ export const meta = {
   },
   icon: "text:OCR",
   baseUrl: "http://local-ocr.local:18082",
-  models: ["mineru-pipeline-cpu", "paddleocr-vl-1.6-cpu"],
+  models: ["mineru-pipeline-cpu", "paddleocr-vl-1.6-cpu", "hunyuanocr-1.5-cpu", "glm-ocr-cpu", "xiaomi-ocr-0-cpu", "minicpm-ocr-1.0-cpu", "ovisocr3-cpu"],
   fetchMode: "per_task",
   routes: [
     { method: "POST", path: "/local-ocr/v1/parse", type: "submit", decode: "parseDocument", render: "taskCreated" },
@@ -43,7 +43,8 @@ function normalize(ctx) {
     const models = fields.model || [];
     if (models.length !== 1) throw new Error("The model form field is required");
     const genericDriver = !ctx.body;
-    const normalized = { model: models[0], file: genericDriver ? { __fileRef: file.ref, encoding: "base64", maxBytes: 52428800 } : file, filename: file.filename, mime_type: file.mimeType };
+    const quality = (fields.quality || ["false"])[0];
+    const normalized = { model: models[0], quality: quality === "true" || quality === "1", file: genericDriver ? { __fileRef: file.ref, encoding: "base64", maxBytes: 52428800 } : file, filename: file.filename, mime_type: file.mimeType };
     if (!genericDriver) normalized.multipart = true;
     return normalized;
   }
@@ -53,7 +54,7 @@ function normalize(ctx) {
   const body = input.body.value;
   if (typeof body.file_base64 !== "string" || !body.file_base64) throw new Error("file_base64 or a multipart file is required");
   if (typeof body.filename !== "string" || !/\.(pdf|png|jpe?g|webp)$/i.test(body.filename)) throw new Error("filename must end in .pdf, .png, .jpg, .jpeg or .webp");
-  return { model: body.model, file_base64: body.file_base64, filename: body.filename, mime_type: body.mime_type || "application/octet-stream" };
+  return { model: body.model, quality: body.quality === true || body.quality === "true", file_base64: body.file_base64, filename: body.filename, mime_type: body.mime_type || "application/octet-stream" };
 }
 
 export function decodeRequest(ctx) {
@@ -73,6 +74,7 @@ export function buildSubmitRequest(ctx) {
       bodyType: "multipart",
       parts: [
         { name: "model", value: request.model },
+        { name: "quality", value: request.quality ? "true" : "false" },
         { name: "file", fileRef: request.file.ref, filename: request.filename },
       ],
     };
@@ -155,7 +157,8 @@ export const native = {
     if (task.status === "SUCCESS") {
       const artifacts = listArtifacts(task).map(function (item) {
         const hosted = (ctx.artifacts || {})[item.key];
-        return Object.assign({}, item, { content_url: hosted ? hosted.url : undefined });
+        const fallback = "/v1/tasks/" + encodeURIComponent(task.task_id) + "/artifacts/" + encodeURIComponent(item.key) + "/content";
+        return Object.assign({}, item, { content_url: hosted ? hosted.url : fallback });
       });
       result.artifacts = artifacts;
     }
@@ -163,3 +166,4 @@ export const native = {
   },
   error: function (ctx, error) { return { error: { code: error.code, message: error.message } }; },
 };
+

@@ -28,6 +28,7 @@
         "model": "mineru-pipeline-cpu",
         "requestBody": {
           "model": "mineru-pipeline-cpu",
+          "quality": false,
           "multipart": true,
           "file": {
             "ref": "request_file:file",
@@ -112,6 +113,7 @@
         "model": "mineru-pipeline-cpu",
         "requestBody": {
           "model": "mineru-pipeline-cpu",
+          "quality": false,
           "file": {
             "__fileRef": "request_file:file",
             "encoding": "base64",
@@ -219,6 +221,72 @@
         "state": {
           "pages": 0
         }
+      }
+    },
+    {
+      "name": "multipart quality flag is forwarded",
+      "hook": "buildSubmitRequest",
+      "args": [
+        {
+          "baseUrl": "http://127.0.0.1:18082",
+          "apiKey": "internal",
+          "body": {
+            "kind": "multipart",
+            "fields": {
+              "model": [
+                "mineru-pipeline-cpu"
+              ],
+              "quality": [
+                "true"
+              ]
+            },
+            "files": [
+              {
+                "ref": "request_file:file",
+                "filename": "paper.pdf",
+                "mimeType": "application/pdf",
+                "size": 42
+              }
+            ]
+          },
+          "requestBody": {
+            "model": "mineru-pipeline-cpu",
+            "quality": true,
+            "multipart": true,
+            "file": {
+              "ref": "request_file:file",
+              "filename": "paper.pdf",
+              "mimeType": "application/pdf",
+              "size": 42
+            },
+            "filename": "paper.pdf",
+            "mime_type": "application/pdf"
+          }
+        }
+      ],
+      "expected": {
+        "url": "http://127.0.0.1:18082/v1/tasks",
+        "method": "POST",
+        "headers": {
+          "Authorization": "Bearer internal",
+          "Accept": "application/json"
+        },
+        "bodyType": "multipart",
+        "parts": [
+          {
+            "name": "model",
+            "value": "mineru-pipeline-cpu"
+          },
+          {
+            "name": "quality",
+            "value": "true"
+          },
+          {
+            "name": "file",
+            "fileRef": "request_file:file",
+            "filename": "paper.pdf"
+          }
+        ]
       }
     },
     {

@@ -1,0 +1,23 @@
+{
+  "model": "piccolo-test",
+  "answers": {
+    "action": {
+      "type": "choice",
+      "choice": "read",
+      "probabilities": {
+        "read": 0.9997,
+        "write": 0.0002,
+        "delete": 0.0001
+      },
+      "confidence": 0.9995
+    },
+    "keep": {
+      "type": "noul",
+      "noul": 0.91
+    }
+  },
+  "usage": {
+    "input_tokens": 412,
+    "output_tokens": 0
+  }
+}

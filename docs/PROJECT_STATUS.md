@@ -1,6 +1,41 @@
 # 项目进度
 
-> 最后更新：2026-11-11。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
+> 最后更新：2026-11-13。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
+
+## 整合：Local OCR 0.1.9 更新与 Local Decisions 新增（2026-11-13）
+
+- 在分支 `feat/local-decisions-and-ocr-updates`（起点为干净的 `main`，与 `origin/main` 同为 `ec77df8`）上完成两组整合。OCR 侧按用户提供的 `local-ocr-task-plugin-0.1.9.zip` 与 `local-document-ocr.zip` 更新现有目录：插件由 0.1.7 升级到 0.1.9，模型从 2 个扩为 7 个（`mineru-pipeline-cpu`、`paddleocr-vl-1.6-cpu`、`hunyuanocr-1.5-cpu`、`glm-ocr-cpu`、`xiaomi-ocr-0-cpu`、`minicpm-ocr-1.0-cpu`、`ovisocr3-cpu`），Skill 增加 `--quality` 开关。
+- 新项目按仓库规范落位为 `local-decisions-plugin/`（Task Plugin 0.4.0，key `local-decisions`）与 `local-decisions/`（Agent Skill）。插件源码 6,571 个 LF 字节、SHA-256 `30b7c560f4bf86b2c1132d99044e372cf87fb9d80c1ff640010ae999b58bee1a`，与 manifest、`SHA256SUMS` 和根索引一致。适配器只提供同步 `POST /v1/systemone`：`choice`（2–256 个 criteria）与 `noul`（P(yes)）两类问题，校验概率归一化（±0.001）与 `usage.output_tokens === 0`，Jev-Omni 固定转发到独立运行时，提交前预留 8192 token 上限并在完成时按实际 `input_tokens` 结算。没有任务 ID、轮询接口或 `/v1/chat/completions` 通道。
+- 整合时保留仓库既有防护而非照搬上游归档：OCR 插件继续对每次任务表达式提交统一预留 100 页、不信任调用方 `pages`/文件名/MIME；OCR Skill 继续在轮询、产物列表、下载及下载后格式校验失败时保留公共任务 ID 且不重复提交（代码、`SKILL.md` 与回归同时恢复）。上游归档中的 `.omc/state/` 限流文件和 `__pycache__` 未纳入。
+- 根索引新增 `local-decisions`（0.4.0，路径 `local-decisions-plugin/plugin.js`，两条 `usageSchema`：`input_tokens`/`output_tokens`），并把 `local-ocr` 升级到 0.1.9、七个模型与新的 `sha256`。`.githooks/check-push.js` 及其回归、`.gitignore` 的白名单同步加入两份新 ZIP，白名单现为十份；根 `README.md` 与 `AGENTS.md` 同步为十个工具、四个市场插件、五个 Skill。
+- 离线验证：Local OCR 插件 fixture 14/14、Local OCR Skill 23 个用例全部通过、Local Decisions 插件 fixture 17/17、Local Decisions Skill 9/9，退出码均为 0，无跳过或 todo；发布保护回归 40/40。四份 ZIP 均由显式条目白名单重建，通过 CRC、安全路径、无嵌套归档、与工作树逐字节一致及干净解压测试（分别 14/14、17/17、23 OK、9 OK）。
+- 未验证范围（整合当时）：未在 New API 或 moejs 实机安装或调用，未调用真实 OCR 或决策推理服务，未实测端口 18083/18503 的路由、配额预留与结算、市场安装和模型识别质量。用户提供的 2026-11-12 渠道 `#82` 实测记录只覆盖该部署与当时的源码，不是本轮最终源码的实测证据。本轮未提交、打标签或推送。下一节的隔离 rc.50 验证只补齐其中一部分。
+
+## 隔离 New API rc.50 端到端验证（2026-11-13）
+
+- 测试环境：本机起了与用户 `new-api-slave` 同镜像（`calciumion/new-api`，`v1.0.0-rc.50`）的隔离容器，端口 3001、独立本地 SQLite，未接共享 PostgreSQL，未使用用户账号、令牌或真实上游密钥。上游由宿主 mock 服务代替（18082 OCR / 18083 Piccolo / 18503 Jev-Omni），全部为合成请求，无真实文档、真实模型或付费调用。结束后 `docker rm -f new-api-plugin-test mockfwd`，并只按 PID 终止本次启动的 mock 监听进程；用户容器与共享数据库未被触碰。
+- 安装链路：市场源指向本地提供的 `index.json` 与 `plugin.js`，在 New API 内完成「添加插件源 → 安装 → moejs 编译 → 新建 type 61 渠道 → 建令牌 → 客户端调用」。这验证了 New API 的插件安装与 moejs 运行时，**不验证从 GitHub Raw 公网索引一键安装**。
+- Local OCR 插件 7/7 模型通过：每个模型都完成 `POST /v1/tasks/local-ocr` → 轮询 `GET /v1/tasks/<id>` 至 `SUCCESS` → `GET .../artifacts` → `GET .../artifacts/<key>/content`，各取回 20 字节 markdown；mock 日志确认选中模型名逐字转发，无隐式替换。`billing_context` 可见提交前预留与完成时结算（`model_ratio 37.5`、`other_ratios.pages`，100 页约合 $18.75 预消费）。
+- Local Document OCR Skill 7/7：`scripts/parse.py --model` 逐个模型产出 7 个 markdown，md5 一致（mock 内容相同所致）；全程同一公共任务 ID，无重复提交。
+- Local Decisions 插件 3/3 模型通过：`POST /v1/systemone` 均 200，`choice` 概率为两项且和为 1.0，`noul` 回答正常，`usage.output_tokens === 0`。路由由 mock 记录的 Host 头证实：两个 Piccolo 走 `127.0.0.1:18083`，Jev-Omni 走 `127.0.0.1:18503`，与 `MODEL_BASE_URLS` 一致，渠道 `base_url` 未覆盖该映射。
+- Local Decisions Skill 3/3 模型、5 次调用：`request-choice`（Piccolo-4B）、`request-choice --model Piccolo-9B-Q8_0`、`request-jev`、`request-multi`、`request-noul` 全部成功，客户端校验与退出码符合文档。
+- 四个离线套件同时全绿：Local OCR 插件 14/14、Local Decisions 插件 17/17、Local Document OCR 23 个用例 OK、Local Decisions Skill 9/9，无跳过或 todo。
+- rc.50 部署侧观察（版本范围限定，是部署行为而非产品契约）：
+  - type 61 渠道的模型集合必须与插件 `meta.models` 完全一致，否则被任务插件认领的模型返回 503 `model_not_found ... claimed by a task plugin`。
+  - `users.group` 与 `tokens.group` 为空时，即使渠道与 abilities 正常，分销仍记录 `event=no_available_channel group=""` 并 503；补回 `default` 组后立即恢复。
+  - `fetch_setting.enable_ssrf_protection`（默认 `true`）拦截从回环上游拉取 artifact 内容，表现为 `502 artifact_request_rejected`，回环部署需关闭该项。
+  - 任务未到终态前 `GET .../artifacts` 返回 `409 artifact_not_ready`，属正常时序，不是插件缺陷。
+  - `PUT /api/channel/` 在 rc.50 返回 `record not found`（更新需先 DELETE 再 POST）；`PUT /api/user/` 对配额的修改未见持久化，本地 SQLite 直改才生效。
+  - 以 `--network container:<目标>` 挂接的 sidecar 在 `docker restart <目标>` 后消失，需重建并重新确认上游可达。
+- 仍未验证：真实 OCR 识别质量与真实决策模型输出（上游全程为 mock）；GitHub Raw 公网索引的一键安装；用户的 `new-api-slave`（共享 PostgreSQL）部署；真实计费金额。用户提供的 2026-11-12 渠道 `#82` 记录仍只对应那一部署。本轮仍未提交、打标签或推送。
+- 验证中发现并修正的文档偏差：`local-decisions-plugin` 的 `baseFor()` 对三个模型都命中 `MODEL_BASE_URLS`，渠道 Base URL 实际只在模型不在映射表时兜底，因此三个运行时必须与 New API 同机。原 README 第 5 步与根 README 第 7 步写成「把渠道 Base URL 指向 Piccolo 运行时、Jev-Omni 需加入 `allowedHosts`」，会让读者以为改渠道 Base URL 即可迁到其他主机。已改为说明同机约束与「同时改 `MODEL_BASE_URLS` + `meta.allowedHosts` 并按新版本重算 `sha256`」的路径。插件 `plugin.js` 未改，版本仍为 0.4.0，`index.json` 哈希复核一致；同一处措辞也已修正 `CHANGELOG.md`，因 README 与 CHANGELOG 都在发布 ZIP 内，`local-decisions-plugin.zip` 已按新内容重建（8 条目、9,862 字节、CRC 与逐字节一致）。另核对 `local-decisions/references/api-contract.md` 的上游端口表与 `plugin.js` 一致，无需改动。
+
+## 本轮文件盘点（2026-11-13）
+
+- 四个根目录输入 ZIP（`local-ocr-task-plugin-0.1.9.zip`、`local-document-ocr.zip`、`local-decisions-plugin-0.4.0.zip`、`local-decisions-skill-20261113.zip`）按仓库规则保持原位、保持 ignored/untracked，未移动、未重命名、未纳入 Git，也未改写成白名单发布路径。
+- `git ls-files` 盘点：十个产品目录原位；`git ls-files --others --exclude-standard` 恰好是 `local-decisions-plugin/` 与 `local-decisions/` 下 20 个应发布文件，无其他游离文件。四份发布 ZIP 与工作树逐字节一致，两个插件源码的 LF SHA-256 与 `index.json` 一致。
+- 各产品目录下由解压/测试残留产生的 `.omc/` 与 `__pycache__/` 均被忽略规则覆盖，且不在任何发布 ZIP 内。本轮删除了产品目录下的 `__pycache__/`（纯可再生缓存），保留了各目录的 `.omc/` 会话状态与根 `.omc/artifacts/` 下的验证材料，因后者的删除未获单独授权。
+- 整理只做到「盘点 + 清理可再生缓存 + 记录」这一层：未移动、删除或重命名任何产品目录、历史文档、白名单归档或 `.omc/` 验证材料。
 
 ## 已发布：Local OCR 0.1.7 初始页数预留（2026-11-11）
 
@@ -54,7 +89,7 @@
 - 1.2.0 的 `index.json` 版本、路径与插件源码 LF 归一化 SHA-256（`9bfee89c5e9ce129f23c3b45f48efac3b9111855553671ff4ba1601c4a308a32`）一致。
 - 上述发布事实分别对应 2026-11-06 与 2026-11-07 的检查，不代表后续提交也已发布。开始新工作前必须重新检查 Git 状态和远端。
 
-## 八个项目的当前状态
+## 十个项目的当前状态
 
 | 项目 | 当前状态 | 最近的验证范围 |
 |---|---|---|
@@ -63,8 +98,10 @@
 | `jihuarst-image/` | 已合并并推送到 `main` 的 `88703f0`，后续 `70be661` 记录发布状态；三个 2.6 模型、新请求字段、markup、`output_format` 与 SVG/GIF 字节交付；保留 `feat/jihuarst-image-2-6` | 2026-11-10 合并结果 80/80 离线测试通过；此前源码与干净解压 ZIP 各 80/80；四文件归档与安全审计通过；真实交付限制见完整矩阵 |
 | `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改源码，Images API 更新不适用于其 `/v1/videos` 通道 | 2026-11-09 回归 67/67 离线测试通过 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；本轮整合前六个 ZIP 的跟踪状态检查通过，历史安全审计覆盖其归档 |
-| `local-ocr-task-plugin/` | Local Document OCR 0.1.7，key 为 `local-ocr`；任务表达式提交统一预留 100 页，完成时按任务服务实际页数结算；产品基线 `ca8d3c7` 已合并并推送到 `main` | 2026-11-11 源码、干净 Git 导出和干净解压 ZIP 各 13/13 离线测试通过；七文件归档、发布元数据及远端树/Raw 内容审计通过；真实 New API/moejs、预留/扣费/退款、持久化及市场安装未验证 |
-| `local-document-ocr/` | 对应 OCR Skill；单文档提交、同任务轮询、同源产物下载、格式/ZIP 校验、轮询、产物列表、下载及下载后格式校验错误保留任务 ID 及原子输出保护 | 2026-11-10 源码和干净解压 ZIP 各 22/22 离线测试通过；五文件归档审计通过；真实 OCR 文档及识别质量未在本轮验证 |
+| `local-ocr-task-plugin/` | Local Document OCR 0.1.9，key 为 `local-ocr`；七个 OCR 模型；任务表达式提交统一预留 100 页，完成时按任务服务实际页数结算；本轮在 `feat/local-decisions-and-ocr-updates` 上从 0.1.7 更新 | 2026-11-13 源码与干净解压 ZIP 各 14/14 离线测试通过；同日隔离 rc.50 实例内 7/7 模型完成提交→轮询→产物→内容下载；真实 OCR 识别质量、公网 Raw 一键安装、用户共享 PostgreSQL 部署未验证 |
+| `local-document-ocr/` | 对应 OCR Skill；新增 VLM 模型的 `--quality`；单文档提交、同任务轮询、同源产物下载、格式/ZIP 校验，轮询、产物列表、下载及下载后格式校验错误保留任务 ID 及原子输出保护 | 2026-11-13 源码与干净解压 ZIP 各 23 个用例通过；同日隔离 rc.50 实例内 7/7 模型运行 `scripts/parse.py --model` 各产出 markdown；真实 OCR 文档及识别质量未验证 |
+| `local-decisions-plugin/` | 新增：Local Decisions 0.4.0，key 为 `local-decisions`；同步 `/v1/systemone`，`choice`/`noul` 校验，Jev-Omni 独立运行时，8192 token 上限预留；本轮未提交或发布 | 2026-11-13 源码与干净解压 ZIP 各 17/17 离线 fixture 通过；同日隔离 rc.50 实例内 3/3 模型 `/v1/systemone` 通过，Piccolo→18083、Jev-Omni→18503 路由经 Host 头证实；真实决策模型输出、公网 Raw 一键安装未验证 |
+| `local-decisions/` | 新增：对应决策 Skill；标准库客户端、请求/响应校验、退出码 0/2/3/4，文档强调决策为建议而非授权 | 2026-11-13 源码与干净解压 ZIP 各 9/9 离线用例通过；同日隔离 rc.50 实例内 3/3 模型、5 次示例调用全部成功；真实推理服务未调用 |
 | `unified-web-mcp/` | 0.1.0；本轮未改动 | 2026-11-06 文档整理中源码 85/85 离线测试通过；更早历史见项目内 `PROJECT_MEMORY.md` |
 
 这些数字是注明日期的发布基线及文档整理验证快照，不是永久有效的当前测试结论。改动后必须重跑相关套件。
@@ -170,6 +207,7 @@
 ## 已知边界与待办
 
 - **Local OCR 0.1.7 已合并并推送到 `main`。** 产品基线为 `ca8d3c7`，根索引、源码和 ZIP 已核验远端一致；真实 New API/moejs、实际预留/扣费/退款、市场安装和 OCR 服务仍未验证。
+- **隔离 rc.50 只补上「契约与运行时」这一层。** 2026-11-13 的隔离实例验证了安装、moejs 编译、type 61 渠道、`/v1/systemone`、任务驱动的提交/轮询/产物下载和 18083/18503 路由；上游是 mock，因此真实 OCR/决策质量、真实计费金额、公网 Raw 索引一键安装、用户的共享 PostgreSQL 部署仍属未验证。不要把这一节的结论外推为「用户的 slave 上已跑通」。
 - **New API 市场安装未实测。** 已验证的是索引、源码 URL、哈希及离线契约，不应把它描述成真实 New API 安装成功。
 - **Jihuarst 历史离线测试失败已单独修复并复验。** 详见上方 2026-11-06 修复记录及 2026-11-07 真实付费验证。离线 fixture 和真实网关属于不同验证层次，离线通过不代替真实交付验收。
 - **Panel 模型实测范围。** 用户报告 2026-11-06 Panel 的 MiniMax H3 与 Kling V3 任务成功；维护规则现已改为保留该版本范围的证据，不将其扩张为后续最终 COS 解析补丁的实测结论。

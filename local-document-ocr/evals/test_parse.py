@@ -109,14 +109,14 @@ class FakeServer(ThreadingHTTPServer):
         self.artifact_keys = ["markdown", "json", "package"]
         self.artifact_bodies = {}
         self.submit_http_status = 200
-        self.application_error = False
-        self.poll_application_error = False
-        self.artifacts_application_error = False
         self.download_http_status = 200
         self.failure_reason = "fixture failure"
         self.task_failure = False
         self.unknown_status = False
         self.stuck = False
+        self.application_error = False
+        self.poll_application_error = False
+        self.artifacts_application_error = False
         self.cross_origin_redirect = None
 
 
@@ -173,6 +173,13 @@ class ClientTests(unittest.TestCase):
         document = self.root / "paper.pdf"
         document.write_bytes(b"%PDF-1.4\noffline")
         self.assertEqual(self.client.submit(document, "mineru-pipeline-cpu"), self.server.task_id)
+
+    def test_quality_flag_is_allowed_for_vlm(self) -> None:
+        self.assertEqual(self.client.submit(self.document, "minicpm-ocr-1.0-cpu", quality=True), self.server.task_id)
+        body = self.server.bodies[0]
+        self.assertIn(b'name="quality"', body)
+        self.assertIn(b'name="quality"\r\n\r\ntrue\r\n', body)
+        self.assertIn(b"minicpm-ocr-1.0-cpu", body)
 
     def test_json_and_zip_artifacts(self) -> None:
         self.server.artifact_bodies["json"] = b'{"pages": 1}'
@@ -241,15 +248,6 @@ class ClientTests(unittest.TestCase):
         with self.assertRaises(parse.OCRError):
             self.client.download(self.server.task_id, "../outside", self.root / "x")
 
-    def test_application_error_redacts_nonstandard_token(self) -> None:
-        key = "offline-nonstandard-token"
-        client = parse.NewAPIOCRClient(self.base_url, key, timeout=2)
-        self.server.application_error = True
-        self.server.failure_reason = f"upstream rejected Bearer {key}"
-        with self.assertRaises(parse.OCRError) as caught:
-            client.submit(self.document, "mineru-pipeline-cpu")
-        self.assertNotIn(key, str(caught.exception))
-
     def test_redaction(self) -> None:
         sanitized = parse.redact(f"Bearer {self.key} https://example.com?access=secret", (self.key,))
         self.assertNotIn(self.key, sanitized)
@@ -302,6 +300,18 @@ class CLITests(unittest.TestCase):
         self.assertEqual(self.server.submissions, 0)
         self.assertEqual(self.output.read_text(), "keep")
 
+    def test_cli_paddle_is_explicit(self) -> None:
+        with mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(parse.main(self.arguments("--model", "paddleocr-vl-1.6-cpu", "--json")), 0)
+        self.assertIn(b"paddleocr-vl-1.6-cpu", self.server.bodies[0])
+
+    def test_cli_quality_is_allowed_for_vlm(self) -> None:
+        with mock.patch("sys.stdout", new=io.StringIO()):
+            self.assertEqual(parse.main(self.arguments("--model", "minicpm-ocr-1.0-cpu", "--quality", "--json")), 0)
+        body = self.server.bodies[0]
+        self.assertIn(b"minicpm-ocr-1.0-cpu", body)
+        self.assertIn(b'name="quality"\r\n\r\ntrue\r\n', body)
+
     def test_cli_download_failure_preserves_public_task_id(self) -> None:
         self.server.download_http_status = 502
         with mock.patch("sys.stderr", new=io.StringIO()) as stderr:
@@ -351,11 +361,6 @@ class CLITests(unittest.TestCase):
             self.assertEqual(parse.main(self.arguments()), 1)
         self.assertIn(self.server.task_id, stderr.getvalue())
         self.assertFalse(self.output.exists())
-
-    def test_cli_paddle_is_explicit(self) -> None:
-        with mock.patch("sys.stdout", new=io.StringIO()):
-            self.assertEqual(parse.main(self.arguments("--model", "paddleocr-vl-1.6-cpu", "--json")), 0)
-        self.assertIn(b"paddleocr-vl-1.6-cpu", self.server.bodies[0])
 
 
 if __name__ == "__main__":

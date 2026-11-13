@@ -106,20 +106,80 @@
       "usageProfiles": null,
       "models": [
         "mineru-pipeline-cpu",
-        "paddleocr-vl-1.6-cpu"
+        "paddleocr-vl-1.6-cpu",
+        "hunyuanocr-1.5-cpu",
+        "glm-ocr-cpu",
+        "xiaomi-ocr-0-cpu",
+        "minicpm-ocr-1.0-cpu",
+        "ovisocr3-cpu"
       ],
       "task": true,
       "provider": false,
       "transform": false,
-      "latest": "0.1.7",
+      "latest": "0.1.9",
       "versions": [
         {
-          "version": "0.1.7",
+          "version": "0.1.9",
           "path": "local-ocr-task-plugin/plugin.js",
-          "sha256": "ec9a1b23bee8c05afe783698c44ff8fc4321c658f5dde82f719b9686ebc31bfb",
+          "sha256": "eb5468ef7127ecd7de272862d6a9cf577ebe96de7a6a66e9bbdd5bb6879981b6",
           "minApiVersion": 1,
           "kind": "task",
           "baseUrl": "http://local-ocr.local:18082"
+        }
+      ]
+    },
+    {
+      "key": "local-decisions",
+      "name": "Local Decisions (Piccolo + Jev-Omni)",
+      "icon": "text:LD",
+      "description": {
+        "en": "Piccolo and Jev-Omni native decisions through compatible llama.cpp /v1/systemone runtimes",
+        "zh": "通过兼容 llama.cpp 的 /v1/systemone 提供 Piccolo 与 Jev-Omni 原生决策"
+      },
+      "routes": [
+        {
+          "method": "POST",
+          "path": "/v1/systemone",
+          "type": "submit",
+          "decode": "decodeSystemOne",
+          "render": "renderSystemOne"
+        }
+      ],
+      "usageSchema": {
+        "input_tokens": {
+          "type": "number",
+          "unit": "token",
+          "description": {
+            "en": "Input token unit price",
+            "zh": "输入 token 单价"
+          }
+        },
+        "output_tokens": {
+          "type": "number",
+          "unit": "token",
+          "description": {
+            "en": "Output token unit price",
+            "zh": "输出 token 单价"
+          }
+        }
+      },
+      "models": [
+        "Piccolo-4B-Q4_K_M",
+        "Piccolo-9B-Q8_0",
+        "Jev-Omni-12B-Q4_K_M"
+      ],
+      "task": true,
+      "provider": false,
+      "transform": false,
+      "latest": "0.4.0",
+      "versions": [
+        {
+          "version": "0.4.0",
+          "path": "local-decisions-plugin/plugin.js",
+          "sha256": "30b7c560f4bf86b2c1132d99044e372cf87fb9d80c1ff640010ae999b58bee1a",
+          "minApiVersion": 1,
+          "kind": "task",
+          "baseUrl": "http://127.0.0.1:18083"
         }
       ]
     }
