@@ -2,14 +2,25 @@
 
 > 最后更新：2026-11-13。这里记录跨项目状态与接手入口；长期维护规则见根目录 `AGENTS.md`，MCP 的专项历史见其 `PROJECT_MEMORY.md`。
 
+## 已发布：Local Decisions 0.4.0 与 Local OCR 0.1.9（2026-11-13）
+
+- 发布提交：`c2e12e5 feat: add Local Decisions plugin and Skill, release Local OCR 0.1.9`（38 个文件，+2660/−120），以 `--no-ff` 合并为 `0a5c093 merge: integrate Local Decisions and Local OCR 0.1.9`。`main` 在合并前与 `origin/main` 同为 `ec77df8`，因此合并无冲突，合并提交只用于记录整合点，与仓库此前的 `merge:` 提交一致。分支 `feat/local-decisions-and-ocr-updates` 已推送为新的远端分支并保留，未删除。
+- 发布后核对：本地 `main`、`origin/main` 与远端分支 tip 均为 `0a5c093`（tree `dbfec3a268ef818893edb438075ab909cc284ad8`），合并树与功能分支树完全相同。GitHub 递归树在该提交下为 106 个 blob、未截断，路径与 SHA 和 `git ls-tree -r main` 完全一致，无缺失、多余或哈希不符。
+- 固定提交 Raw URL 字节比对全部 MATCH：`index.json` 5,122、`local-decisions-plugin/plugin.js` 6,571、`local-ocr-task-plugin/plugin.js` 7,783、`local-decisions-plugin/local-decisions-plugin.zip` 9,862、`local-decisions/local-decisions.zip` 22,195 字节。可变分支的 HTTP 200 未被当作内容一致的证据。
+- 合并后的 `main` 重跑四个套件：Local OCR 插件 14/14、Local Decisions 插件 17/17、Local Document OCR 23 个用例 OK、Local Decisions Skill 9 个用例 OK，无失败、跳过或 todo；四个 `index.json` 哈希与 LF 归一化源码一致；四份客户端 ZIP CRC 正常且与工作树逐字节一致。
+- 推送保护：提交前回归 40/40；因同一次提交修改了 `check-push.js` 自身的白名单，guard 另按 `--range` 语义对新远端分支预演（105 个唯一 blob）后再推送，实际 pre-push 与预演结果一致，未使用 `--no-verify`、未弱化任何规则。提交前对暂存快照扫描四个本地非空凭据值，0 匹配且未显示凭据；该启发式检查不证明未知秘密绝对不存在。
+- `--all` 模式仍会把两个历史归档 `kling_wb2api_newapi/kling_wb2api_newapi.zip` 与 `video_wb2api_newapi/video_wb2api_newapi.zip` 报为「generated archive」而未通过。它们只存在于更早历史，不在当前树、也不在任何外发提交里，属已知的历史路径发现，不是需要绕过 guard 的阻塞项；正常 pre-push 未触发这两条。
+- 环境注记：本机 Git 的 Schannel 后端在这些操作中报 `CRYPT_E_REVOCATION_OFFLINE (0x80092013)`，导致 `fetch`/`push` 失败，`curl` 也受影响。本轮用 `git -c http.sslBackend=openssl …` 与 `curl --ssl-no-revoke` 逐条绕过，未写入任何 Git 或系统配置；长期修复仍需在本机 `~/.gitconfig` 中单独决定。
+- 仍未验证：从 GitHub Raw 公网索引一键安装、真实 New API 计费与退款、隔离测试床以外的 moejs 执行，以及 Piccolo / Jev-Omni 的准确率与延迟。
+
 ## 整合：Local OCR 0.1.9 更新与 Local Decisions 新增（2026-11-13）
 
 - 在分支 `feat/local-decisions-and-ocr-updates`（起点为干净的 `main`，与 `origin/main` 同为 `ec77df8`）上完成两组整合。OCR 侧按用户提供的 `local-ocr-task-plugin-0.1.9.zip` 与 `local-document-ocr.zip` 更新现有目录：插件由 0.1.7 升级到 0.1.9，模型从 2 个扩为 7 个（`mineru-pipeline-cpu`、`paddleocr-vl-1.6-cpu`、`hunyuanocr-1.5-cpu`、`glm-ocr-cpu`、`xiaomi-ocr-0-cpu`、`minicpm-ocr-1.0-cpu`、`ovisocr3-cpu`），Skill 增加 `--quality` 开关。
-- 新项目按仓库规范落位为 `local-decisions-plugin/`（Task Plugin 0.4.0，key `local-decisions`）与 `local-decisions/`（Agent Skill）。插件源码 6,571 个 LF 字节、SHA-256 `30b7c560f4bf86b2c1132d99044e372cf87fb9d80c1ff640010ae999b58bee1a`，与 manifest、`SHA256SUMS` 和根索引一致。适配器只提供同步 `POST /v1/systemone`：`choice`（2–256 个 criteria）与 `noul`（P(yes)）两类问题，校验概率归一化（±0.001）与 `usage.output_tokens === 0`，Jev-Omni 固定转发到独立运行时，提交前预留 8192 token 上限并在完成时按实际 `input_tokens` 结算。没有任务 ID、轮询接口或 `/v1/chat/completions` 通道。
+- 新项目按仓库规范落位为 `local-decisions-plugin/`（Task Plugin 0.4.0，key `local-decisions`）与 `local-decisions/`（Agent Skill）。插件源码 6,571 个 LF 字节、SHA-256 `30b7c560f4bf86b2c1132d99044e372cf87fb9d80c1ff640010ae999b58bee1a`，与 manifest 和根索引 `sha256` 一致。适配器只提供同步 `POST /v1/systemone`：`choice`（2–256 个 criteria）与 `noul`（P(yes)）两类问题，校验概率归一化（±0.001）与 `usage.output_tokens === 0`，Jev-Omni 固定转发到独立运行时，提交前预留 8192 token 上限并在完成时按实际 `input_tokens` 结算。没有任务 ID、轮询接口或 `/v1/chat/completions` 通道。
 - 整合时保留仓库既有防护而非照搬上游归档：OCR 插件继续对每次任务表达式提交统一预留 100 页、不信任调用方 `pages`/文件名/MIME；OCR Skill 继续在轮询、产物列表、下载及下载后格式校验失败时保留公共任务 ID 且不重复提交（代码、`SKILL.md` 与回归同时恢复）。上游归档中的 `.omc/state/` 限流文件和 `__pycache__` 未纳入。
 - 根索引新增 `local-decisions`（0.4.0，路径 `local-decisions-plugin/plugin.js`，两条 `usageSchema`：`input_tokens`/`output_tokens`），并把 `local-ocr` 升级到 0.1.9、七个模型与新的 `sha256`。`.githooks/check-push.js` 及其回归、`.gitignore` 的白名单同步加入两份新 ZIP，白名单现为十份；根 `README.md` 与 `AGENTS.md` 同步为十个工具、四个市场插件、五个 Skill。
 - 离线验证：Local OCR 插件 fixture 14/14、Local OCR Skill 23 个用例全部通过、Local Decisions 插件 fixture 17/17、Local Decisions Skill 9/9，退出码均为 0，无跳过或 todo；发布保护回归 40/40。四份 ZIP 均由显式条目白名单重建，通过 CRC、安全路径、无嵌套归档、与工作树逐字节一致及干净解压测试（分别 14/14、17/17、23 OK、9 OK）。
-- 未验证范围（整合当时）：未在 New API 或 moejs 实机安装或调用，未调用真实 OCR 或决策推理服务，未实测端口 18083/18503 的路由、配额预留与结算、市场安装和模型识别质量。用户提供的 2026-11-12 渠道 `#82` 实测记录只覆盖该部署与当时的源码，不是本轮最终源码的实测证据。本轮未提交、打标签或推送。下一节的隔离 rc.50 验证只补齐其中一部分。
+- 未验证范围（整合当时）：未在 New API 或 moejs 实机安装或调用，未调用真实 OCR 或决策推理服务，未实测端口 18083/18503 的路由、配额预留与结算、市场安装和模型识别质量。用户提供的 2026-11-12 渠道 `#82` 实测记录只覆盖该部署与当时的源码，不是本轮最终源码的实测证据。本轮未提交、打标签或推送，后续已由上方 2026-11-13 发布记录关闭其中的提交与推送部分；下一节的隔离 rc.50 验证只补齐实机链路的一部分。
 
 ## 隔离 New API rc.50 端到端验证（2026-11-13）
 
@@ -27,7 +38,7 @@
   - 任务未到终态前 `GET .../artifacts` 返回 `409 artifact_not_ready`，属正常时序，不是插件缺陷。
   - `PUT /api/channel/` 在 rc.50 返回 `record not found`（更新需先 DELETE 再 POST）；`PUT /api/user/` 对配额的修改未见持久化，本地 SQLite 直改才生效。
   - 以 `--network container:<目标>` 挂接的 sidecar 在 `docker restart <目标>` 后消失，需重建并重新确认上游可达。
-- 仍未验证：真实 OCR 识别质量与真实决策模型输出（上游全程为 mock）；GitHub Raw 公网索引的一键安装；用户的 `new-api-slave`（共享 PostgreSQL）部署；真实计费金额。用户提供的 2026-11-12 渠道 `#82` 记录仍只对应那一部署。本轮仍未提交、打标签或推送。
+- 仍未验证：真实 OCR 识别质量与真实决策模型输出（上游全程为 mock）；GitHub Raw 公网索引的一键安装；用户的 `new-api-slave`（共享 PostgreSQL）部署；真实计费金额。用户提供的 2026-11-12 渠道 `#82` 记录仍只对应那一部署。本轮当时未提交、打标签或推送，后续已于 2026-11-13 合并推送，见本文件首节。
 - 验证中发现并修正的文档偏差：`local-decisions-plugin` 的 `baseFor()` 对三个模型都命中 `MODEL_BASE_URLS`，渠道 Base URL 实际只在模型不在映射表时兜底，因此三个运行时必须与 New API 同机。原 README 第 5 步与根 README 第 7 步写成「把渠道 Base URL 指向 Piccolo 运行时、Jev-Omni 需加入 `allowedHosts`」，会让读者以为改渠道 Base URL 即可迁到其他主机。已改为说明同机约束与「同时改 `MODEL_BASE_URLS` + `meta.allowedHosts` 并按新版本重算 `sha256`」的路径。插件 `plugin.js` 未改，版本仍为 0.4.0，`index.json` 哈希复核一致；同一处措辞也已修正 `CHANGELOG.md`，因 README 与 CHANGELOG 都在发布 ZIP 内，`local-decisions-plugin.zip` 已按新内容重建（8 条目、9,862 字节、CRC 与逐字节一致）。另核对 `local-decisions/references/api-contract.md` 的上游端口表与 `plugin.js` 一致，无需改动。
 
 ## 本轮文件盘点（2026-11-13）
@@ -78,7 +89,8 @@
 
 ## 当前基线
 
-- Local OCR 的最近产品基线为 `ca8d3c7 fix: reserve maximum pages for Local OCR submissions`，已快进合并并推送到 `main`；`76471c5 docs: record Local OCR 0.1.7 publication` 记录其发布状态。本地分支 `fix/local-ocr-page-reservation` 仍指向 `ca8d3c7`，未删除。开始新工作前以实际 Git/远端为准，不以本文件的提交号代替检查。
+- 最近合并并推送的产品基线为 `0a5c093 merge: integrate Local Decisions and Local OCR 0.1.9`，功能提交为 `c2e12e5`；`origin/main` 同为此提交，GitHub 递归树 106 个 blob 与本地一致。上一基线为 `ec77df8 docs: record repository organization and verification rules`。开始新工作前以实际 Git/远端为准，不以本文件的提交号代替检查。
+- Local OCR 的历史发布基线 `ca8d3c7 fix: reserve maximum pages for Local OCR submissions`（0.1.7）保持不变，本地分支 `fix/local-ocr-page-reservation` 仍指向它，未删除；0.1.9 在其规则之上增加了模型与 `quality` 字段。
 - `70be661 docs: record Image 2.6 publication` 推送后，GitHub 递归树的 70 个 blob 路径、SHA、大小与本地一致且未截断，脚本、测试、`SKILL.md`、ZIP、状态文档、guard 及设计/计划等 10 个发布敏感文件的固定合并提交 Raw URL 与 Git 字节一致。两个功能分支提交正常推送时 pre-push 均扫描 73 个唯一 blob 并通过，未绕过检查；对 4 个本地非空凭据值检查 208 个历史 blob、70 个远端树条目及发布 ZIP 内容均为 0 匹配。该精确值审计不证明未知历史秘密绝对不存在。
 - 上一已发布基线：`35e8930 chore: rebuild Jihuarst client archives`，前一提交为 `b37acb6 fix: stabilize Jihuarst offline HTTP fixtures`。其后 `f656bc9 docs: reorganize maintenance guide and release status` 是本轮分支起点。当时 `35e8930` 的 GitHub 根树为 `8a08cde4a0bd8ef7d392d8ec0cb6e735c06ad4a5`，68 个 blob 的路径、SHA 和大小与本地一致，相关固定提交 Raw URL 均返回 HTTP 200 且字节一致。
 - 本轮发布包括仓库文档整理、Jihuarst Image/Video 离线内存 HTTP fixture、对应官方 ZIP，以及 2026-11-07 的真实付费验证记录。生产 `scripts/generate.py`、New API 插件源码、市场索引及版本均未修改；本地凭据、任务 ID、日志和付费媒体仍只保留在忽略目录。
@@ -98,10 +110,10 @@
 | `jihuarst-image/` | 已合并并推送到 `main` 的 `88703f0`，后续 `70be661` 记录发布状态；三个 2.6 模型、新请求字段、markup、`output_format` 与 SVG/GIF 字节交付；保留 `feat/jihuarst-image-2-6` | 2026-11-10 合并结果 80/80 离线测试通过；此前源码与干净解压 ZIP 各 80/80；四文件归档与安全审计通过；真实交付限制见完整矩阵 |
 | `jihuarst-video/` | 双模型异步视频生成 Skill；本轮未改源码，Images API 更新不适用于其 `/v1/videos` 通道 | 2026-11-09 回归 67/67 离线测试通过 |
 | `zaiwen-image-generation/` | 独立图像 Skill；本轮未改动 | 本轮未重新运行其专项测试；本轮整合前六个 ZIP 的跟踪状态检查通过，历史安全审计覆盖其归档 |
-| `local-ocr-task-plugin/` | Local Document OCR 0.1.9，key 为 `local-ocr`；七个 OCR 模型；任务表达式提交统一预留 100 页，完成时按任务服务实际页数结算；本轮在 `feat/local-decisions-and-ocr-updates` 上从 0.1.7 更新 | 2026-11-13 源码与干净解压 ZIP 各 14/14 离线测试通过；同日隔离 rc.50 实例内 7/7 模型完成提交→轮询→产物→内容下载；真实 OCR 识别质量、公网 Raw 一键安装、用户共享 PostgreSQL 部署未验证 |
-| `local-document-ocr/` | 对应 OCR Skill；新增 VLM 模型的 `--quality`；单文档提交、同任务轮询、同源产物下载、格式/ZIP 校验，轮询、产物列表、下载及下载后格式校验错误保留任务 ID 及原子输出保护 | 2026-11-13 源码与干净解压 ZIP 各 23 个用例通过；同日隔离 rc.50 实例内 7/7 模型运行 `scripts/parse.py --model` 各产出 markdown；真实 OCR 文档及识别质量未验证 |
-| `local-decisions-plugin/` | 新增：Local Decisions 0.4.0，key 为 `local-decisions`；同步 `/v1/systemone`，`choice`/`noul` 校验，Jev-Omni 独立运行时，8192 token 上限预留；本轮未提交或发布 | 2026-11-13 源码与干净解压 ZIP 各 17/17 离线 fixture 通过；同日隔离 rc.50 实例内 3/3 模型 `/v1/systemone` 通过，Piccolo→18083、Jev-Omni→18503 路由经 Host 头证实；真实决策模型输出、公网 Raw 一键安装未验证 |
-| `local-decisions/` | 新增：对应决策 Skill；标准库客户端、请求/响应校验、退出码 0/2/3/4，文档强调决策为建议而非授权 | 2026-11-13 源码与干净解压 ZIP 各 9/9 离线用例通过；同日隔离 rc.50 实例内 3/3 模型、5 次示例调用全部成功；真实推理服务未调用 |
+| `local-ocr-task-plugin/` | Local Document OCR 0.1.9，key 为 `local-ocr`；七个 OCR 模型；任务表达式提交统一预留 100 页，完成时按任务服务实际页数结算；已随 `0a5c093` 合并并推送到 `main` | 2026-11-13 源码与干净解压 ZIP 各 14/14 离线测试通过；同日隔离 rc.50 实例内 7/7 模型完成提交→轮询→产物→内容下载；发布后固定提交 Raw 源码与 7 条目 ZIP 字节一致；真实 OCR 识别质量、公网 Raw 一键安装、用户共享 PostgreSQL 部署未验证 |
+| `local-document-ocr/` | 对应 OCR Skill；新增 VLM 模型的 `--quality`；单文档提交、同任务轮询、同源产物下载、格式/ZIP 校验，轮询、产物列表、下载及下载后格式校验错误保留任务 ID 及原子输出保护；已随 `0a5c093` 合并并推送到 `main` | 2026-11-13 源码与干净解压 ZIP 各 23 个用例通过；同日隔离 rc.50 实例内 7/7 模型运行 `scripts/parse.py --model` 各产出 markdown；发布后固定提交 Raw 的 5 条目 ZIP 字节一致；真实 OCR 文档及识别质量未验证 |
+| `local-decisions-plugin/` | Local Decisions 0.4.0，key 为 `local-decisions`；同步 `/v1/systemone`，`choice`/`noul` 校验，Jev-Omni 独立运行时，8192 token 上限预留；已随 `0a5c093` 合并并推送到 `main` | 2026-11-13 源码与干净解压 ZIP 各 17/17 离线 fixture 通过；同日隔离 rc.50 实例内 3/3 模型 `/v1/systemone` 通过，Piccolo→18083、Jev-Omni→18503 路由经 Host 头证实；发布后固定提交 Raw 源码与 8 条目 ZIP 字节一致；真实决策模型输出、公网 Raw 一键安装未验证 |
+| `local-decisions/` | 对应决策 Skill；标准库客户端、请求/响应校验、退出码 0/2/3/4，文档强调决策为建议而非授权；已随 `0a5c093` 合并并推送到 `main` | 2026-11-13 源码与干净解压 ZIP 各 9/9 离线用例通过；同日隔离 rc.50 实例内 3/3 模型、5 次示例调用全部成功；发布后固定提交 Raw 的 10 条目 ZIP 字节一致；真实推理服务未调用 |
 | `unified-web-mcp/` | 0.1.0；本轮未改动 | 2026-11-06 文档整理中源码 85/85 离线测试通过；更早历史见项目内 `PROJECT_MEMORY.md` |
 
 这些数字是注明日期的发布基线及文档整理验证快照，不是永久有效的当前测试结论。改动后必须重跑相关套件。
@@ -215,6 +227,7 @@
 - **视频媒体质量未完整验收。** 当前环境没有 `ffprobe`；只验证了下载字节与 MP4 `ftyp` 签名，没有验证编码参数、精确时长、逐帧解码或视觉内容。
 - **全历史 ZIP 扫描存在已知阻断。** `node .githooks/check-push.js --all` 会按历史路径识别旧 `kling_wb2api_newapi/kling_wb2api_newapi.zip` 与 `video_wb2api_newapi/video_wb2api_newapi.zip`，并因其不再是当前白名单路径而失败。这属于已移除历史产物的路径策略限制，不是本次普通推送失败；普通推送的增量检查已通过。不得为绕过它而弱化当前规则或擅自改写历史。
 - `gh` CLI 在当时的 Windows 环境不可用，远端文件树通过 GitHub API 核对；不要假设所有机器都安装了 `gh`。
+- 2026-11-13 的 Git 操作遇到本机 Schannel 后端 `CRYPT_E_REVOCATION_OFFLINE`，`fetch`/`push` 与 `curl` 均受影响。本轮只在单条命令上用 `git -c http.sslBackend=openssl …` 与 `curl --ssl-no-revoke` 绕过，未改动仓库或系统配置；这是本机环境问题，不是仓库约定，也不应作为后续推送默认加的标志。
 - 2026-11-10 已按用户明确授权提交、先推送 `feat/jihuarst-image-2-6`，以 `--no-ff` 合并并推送 `main`，保留功能分支。没有新增视频付费任务、打标签或 New API 实机安装；合并后 80/80 图片离线测试通过，两次真实推送均未绕过 pre-push。完整结果见上一节：GPT URL 正文交付仍未修复，SVG/GIF/complexity/markup 因无可用渠道没有真实产物，其他入口或参数的重试仍需注明范围与可能费用。
 - 根目录的 `可乐生图_API接口参数说明.docx` 是用户提供的本地只读参考，尚未纳入 Git。它描述的是另一部署的前端行为，不能作为 Jihuarst 参数能力的直接证据；若需长期保存，应先决定是否公开及如何去除敏感内容。
 
@@ -223,5 +236,5 @@
 1. 运行 `git status --short --branch`，确认分支、远端及未提交改动，不依赖本文件的基线代替检查。
 2. 阅读根 `AGENTS.md`、对应项目的 `README.md` 或 `SKILL.md`，再阅读 `docs/superpowers/specs/` 中的相关设计。
 3. 在对应项目目录运行离线测试；失败、跳过或不可用必须明确报告。
-4. 修改可分发项目后重建其指定 ZIP，并执行干净解压、字节一致性及凭据审计；接手 Local OCR 0.1.7 时先阅读顶部已发布记录及其实机验证边界。
+4. 修改可分发项目后重建其指定 ZIP，并执行干净解压、字节一致性及凭据审计；接手 Local OCR 时先阅读顶部 0.1.9 发布记录，接手决策插件时先阅读其 `README.md` 的同机部署约束。
 5. 只有用户明确授权时才提交或推送；推送后核对远端文件树与原始发布 URL。
